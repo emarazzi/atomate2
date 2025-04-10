@@ -253,7 +253,6 @@ class DfptFlowMaker(Maker):
                 perturbations=phonon_perts_qpt_list.output["perts"],
                 rf_maker=self.phonon_maker,
                 prev_outputs=prev_outputs,
-                with_dde=bool(self.dde_maker),
             )
             jobs.append(phonon_calcs)
 
