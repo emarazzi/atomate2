@@ -350,3 +350,47 @@ class AnaddbDfptDteInputGenerator(AnaddbInputGenerator):
     factory: Callable = anaddbinp_dfpt_dte
     # partial does not a __name__ so cannot jsanitize...
     # factory: Callable = partial(AnaddbInput.dfpt, dte=True)
+
+
+def anaddbinp_phbands_dos(
+    structure: Structure,
+    **kwargs,
+) -> AnaddbInput:
+    """
+    Generate the AnaddbInput for phonon bands and DOS.
+
+    Parameters
+    ----------
+    structure
+        A structure.
+    kwargs
+        A dictionary with anaddb keywords.
+
+    Returns
+    -------
+        An AnaddbInput
+
+    """
+    return AnaddbInput.phbands_and_dos(structure=structure, **kwargs)
+
+
+@dataclass
+class AnaddbPhbandsDOSInputGenerator(AnaddbInputGenerator):
+    """
+    A class to generate the AnaddbInput for phonon bands and DOS.
+
+    Parameters
+    ----------
+    factory
+        A callable to generate the AnaddbInput for phonon bands and DOS.
+    factory_kwargs
+        A dictionary with factory keywords.
+
+    Returns
+    -------
+        An AnaddbInput
+
+    """
+
+    factory: Callable = anaddbinp_phbands_dos
+    factory_kwargs: dict = field(default_factory=dict)

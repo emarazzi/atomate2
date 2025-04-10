@@ -22,6 +22,7 @@ from atomate2.abinit.sets.response import (
     DdeSetGenerator,
     DdkSetGenerator,
     DteSetGenerator,
+    PhononSetGenerator,
 )
 
 if TYPE_CHECKING:
@@ -39,9 +40,11 @@ __all__ = [
     "DdeMaker",
     "DdkMaker",
     "DteMaker",
+    "PhononResponseMaker",
     "ResponseMaker",
     "generate_dde_perts",
     "generate_dte_perts",
+    "generate_phonon_perts",
     "run_rf",
 ]
 
@@ -162,6 +165,27 @@ class DteMaker(ResponseMaker):
     )
 
 
+@dataclass
+class PhononResponseMaker(ResponseMaker):
+    """Maker to create a job with a Phonon ABINIT calculation.
+
+    Parameters
+    ----------
+    name : str
+        The job name.
+    """
+
+    calc_type: str = "Phonon"
+    name: str = "Phonon calculation"
+    input_set_generator: AbinitInputGenerator = field(
+        default_factory=PhononSetGenerator
+    )
+
+    CRITICAL_EVENTS: ClassVar[Sequence[AbinitCriticalWarning]] = (
+        ScfConvergenceWarning,
+    )
+
+
 @job
 def generate_dde_perts(
     gsinput: AbinitInput,
@@ -241,6 +265,68 @@ def generate_dte_perts(
 
 
 @job
+def generate_phonon_perts(
+    gsinput: AbinitInput,
+    ngqpt: list | tuple | None = None,
+    qptopt: int | None = 1,
+    qpt_list: list[list] | None = None,
+    with_wfq: bool = False,
+) -> dict[str, list[Any] | tuple[Any, ...] | Any]:
+    """
+    Generate the qpt-list and perturbations for the phonon calculations.
+
+    Parameters
+    ----------
+    gsinput : an |AbinitInput| representing a ground state calculation,
+        likely the SCF performed to get the WFK.
+    ngqpt : list or tuple
+        Monkhorst-Pack divisions for the phonon q-mesh.
+        Default is the same as the one used in the GS calculation.
+        Must be a sub-mesh of the k-mesh used for electrons.
+    qptopt : int
+        Option for the q-point generation.
+    qpt_list: list
+        q-point for the phonon calculations.
+    with_wfq: bool
+        True if a wfq_maker is provided for k+q computations.
+        Not yet implemented, so default is False.
+
+    Returns
+    -------
+    dict
+        A dictionary with the perturbations, the ngqpt and the
+        output directory name.
+    """
+    gsinput = gsinput.deepcopy()
+    gsinput.pop_vars(["autoparal"])
+    outputs = {}
+    if qpt_list is None:
+        qpt_list = gsinput.abiget_ibz(
+            ngkpt=ngqpt, shiftk=[0, 0, 0], kptopt=qptopt
+        ).points
+        outputs["ngqpt"] = ngqpt if ngqpt else gsinput["ngkpt"]
+    else:
+        outputs["ngqpt"] = [1, 1, 1]
+    qpt_list = [qpt_list] if isinstance(qpt_list[0], int | float) else qpt_list
+    perturbations = list()
+    outdirs = list()
+    for q in qpt_list:
+        perts = gsinput.abiget_irred_phperts(qpt=q)
+        perturbations.append(perts)
+        outdirs.append(Path(os.getcwd()))  # to make the dir accessible
+        # when a wfq_maker will be available something like ... can be added here
+        # if q not in kpt_list and with_wfq:
+        #     wfq_job = wfq_maker.make(q=q, prev_outputs=prev_outputs)
+        #     outputs["dirs"].append(wfq_job.output.dir_name)
+        # and the last if removed
+    outputs["perts"] = list(np.hstack(perturbations))
+    outputs["dir_name"] = list(np.hstack(outdirs))
+    if any(np.array(gsinput["ngkpt"]) % np.array(outputs["ngqpt"])) and not with_wfq:
+        raise ValueError("q-points are not commensurate with k-points.")
+    return outputs
+
+
+@job
 def run_rf(
     perturbations: list[dict],
     rf_maker: ResponseMaker,
@@ -257,9 +343,10 @@ def run_rf(
     prev_outputs : a list of previous output directories
     """
     rf_jobs = []
+    is_phonon = isinstance(rf_maker, PhononResponseMaker)
     outputs: dict[str, Any] = {"dirs": []}
 
-    if isinstance(rf_maker, DdeMaker | DteMaker):
+    if isinstance(rf_maker, DdeMaker | DteMaker | PhononResponseMaker):
         # Flatten the list of previous outputs dir
         # prev_outputs = [item for sublist in prev_outputs for item in sublist]
         prev_outputs = list(np.hstack(prev_outputs))
@@ -269,7 +356,12 @@ def run_rf(
             perturbation=pert,
             prev_outputs=prev_outputs,
         )
-        rf_job.append_name(f"{ipert+1}/{len(perturbations)}")
+
+        if is_phonon:
+            qpt_str = f"{pert['qpt'][0]:.2f},{pert['qpt'][1]:.2f},{pert['qpt'][2]:.2f}"
+            rf_job.append_name(f", q = {qpt_str} ({ipert+1}/{len(perturbations)})")
+        else:
+            rf_job.append_name(f"{ipert+1}/{len(perturbations)}")
 
         rf_jobs.append(rf_job)
         outputs["dirs"].append(rf_job.output.dir_name)  # TODO: determine outputs
