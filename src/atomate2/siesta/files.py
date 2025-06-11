@@ -153,6 +153,21 @@ def cleanup_siesta_outputs(
     for file in files_to_delete:
         file_client.remove(file)
 
+    for filepath in glob(os.path.join(directory, '*.*.ion')):
+        # Split the filepath into directory, base filename, and extension
+        dirname, basename = os.path.split(filepath)
+        # Split the base filename into parts
+        parts = basename.split('.')
+
+        # Check if the filename has at least three parts (prefix, number, ion)
+        if len(parts) >= 3:
+            # The new filename is prefix.ion
+            new_basename = f"{parts[0]}.ion"
+            new_filepath = os.path.join(dirname, new_basename)
+
+            # Rename the file
+            os.rename(filepath, new_filepath)
+
 def load_siesta_input(dirpath: Path | str, fname: str = "siesta_input.json") :
     """Load the AbinitInput object from a given directory.
 
@@ -174,5 +189,6 @@ def load_siesta_input(dirpath: Path | str, fname: str = "siesta_input.json") :
             f"Cannot load AbinitInput from directory without {fname} file."
         )
     else:
-        print("EVERYTHING WAS FINE")
+        #print("EVERYTHING WAS FINE")
+        pass
     return loadfn(siesta_input_file)

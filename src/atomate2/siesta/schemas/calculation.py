@@ -152,6 +152,8 @@ class CalculationOutput(BaseModel):
         )
 
 
+
+
 class Calculation(BaseModel):
     """Full Abinit calculation inputs and outputs.
 
@@ -225,8 +227,8 @@ class Calculation(BaseModel):
         siesta_output_file = dir_name / siesta_output_file
         siesta_xv_file = dir_name / siesta_xv_file
         siesta_MESSAGES_file = dir_name / siesta_MESSAGES_file
-        print(f"{siesta_output_file=}")
-        print(f"{siesta_MESSAGES_file=}")
+        #print(f"{siesta_output_file=}")
+        #print(f"{siesta_MESSAGES_file=}")
 
         siesta_output= stdoutSileSiesta(siesta_output_file)
         siesta_xv = xvSileSiesta(siesta_xv_file)
@@ -234,9 +236,9 @@ class Calculation(BaseModel):
         completed_at = str(
             datetime.fromtimestamp(os.stat(siesta_MESSAGES_file).st_mtime, tz=timezone.utc)
         )
-        print(f"{completed_at=}")
+        #print(f"{completed_at=}")
 
-        print(f"BEFORE output_doc {siesta_output=}")
+        #print(f"BEFORE output_doc {siesta_output=}")
         output_doc = CalculationOutput.from_siesta_out(siesta_output,siesta_xv)
         
         report = None

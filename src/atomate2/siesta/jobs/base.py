@@ -19,7 +19,7 @@ from atomate2.siesta.files import write_siesta_input_set
 from atomate2.siesta.run import run_siesta , should_stop_children
 from atomate2.siesta.schemas.task import SiestaTaskDoc
 from atomate2.common.files import gzip_output_folder
-
+import os
 if TYPE_CHECKING:
     from pymatgen.core import Molecule, Structure
 
@@ -127,25 +127,26 @@ class BaseSiestaMaker(Maker):
         run_siesta(**self.run_siesta_kwargs)
 
         # parse FHI-aims outputs
-        print("READING SIESTA TASK DOCS")
-        task_doc = SiestaTaskDoc.from_directory(Path.cwd(), **self.task_document_kwargs)
-        task_doc.task_label = self.name
+        #print("READING SIESTA TASK DOCS")
+        #task_doc = SiestaTaskDoc.from_directory(Path.cwd(), **self.task_document_kwargs)
+        #task_doc.task_label = self.name
 
-        print("decide whether child jobs should proceed".upper())
+        #print("decide whether child jobs should proceed".upper())
         # decide whether child jobs should proceed
-        stop_children = should_stop_children(task_doc, **self.stop_children_kwargs)
+        #stop_children = should_stop_children(task_doc, **self.stop_children_kwargs)
 
         # cleanup files to save disk space
         cleanup_siesta_outputs(directory=Path.cwd())
 
         # gzip folder
-        gzip_output_folder(
-            directory=Path.cwd(),
-            setting=SETTINGS.SIESTA_ZIP_FILES,
-            files_list=_FILES_TO_ZIP,
-        )
+        #gzip_output_folder(
+        #    directory=Path.cwd(),
+        #    setting=SETTINGS.SIESTA_ZIP_FILES,
+        #    files_list=_FILES_TO_ZIP,
+        #)
 
         return Response(
-            stop_children=stop_children,
-            output=task_doc if self.store_output_data else None,
+            #stop_children=stop_children,
+            #output=task_doc if self.store_output_data else None,
+            output = os.getcwd()
         )
