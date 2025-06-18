@@ -8,16 +8,18 @@ from glob import glob
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from monty.serialization import loadfn
+
 from atomate2.common.files import copy_files, get_zfile, gunzip_files
 from atomate2.utils.file_client import FileClient, auto_fileclient
 from atomate2.utils.path import strip_hostname
-from monty.serialization import loadfn
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from pymatgen.core import Molecule, Structure
-    from atomate2.siesta.sets.base import SiestaInputGenerator # AA TODO
+
+    from atomate2.siesta.sets.base import SiestaInputGenerator  # AA TODO
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +60,7 @@ def copy_siesta_outputs(
     # copy files
     # (no need to copy aims.out by default; it can be added to additional_aims_files
     # explicitly if needed)
-    files: list[str] = (
-        ["siesta.DM", "*.STRUCT_OUT"] if restart_to_input else []
-    )
+    files: list[str] = ["siesta.DM", "*.STRUCT_OUT"] if restart_to_input else []
 
     files += [
         Path(f).name
@@ -115,16 +115,17 @@ def write_siesta_input_set(
     **kwargs
         Keyword arguments to pass to :obj:`.SiestaInputSet.write_input`.
     """
-    #properties = kwargs.get("properties", [])
-    #siesta_fdf_is = input_set_generator()
-    #siesta_fdf_is = input_set_generator(
+    # properties = kwargs.get("properties", [])
+    # siesta_fdf_is = input_set_generator()
+    # siesta_fdf_is = input_set_generator(
     #    structure, prev_dir=prev_dir, properties=properties
-    #)
+    # )
 
-    #logger.info("Writing SIESTA input set.")
-    #siesta_fdf_is.write(structure)
+    # logger.info("Writing SIESTA input set.")
+    # siesta_fdf_is.write(structure)
     print(f"{directory=}")
     input_set_generator.write_siesta_fdf(structure=structure)
+
 
 @auto_fileclient
 def cleanup_siesta_outputs(
@@ -153,11 +154,11 @@ def cleanup_siesta_outputs(
     for file in files_to_delete:
         file_client.remove(file)
 
-    for filepath in glob(os.path.join(directory, '*.*.ion')):
+    for filepath in glob(os.path.join(directory, "*.*.ion")):
         # Split the filepath into directory, base filename, and extension
         dirname, basename = os.path.split(filepath)
         # Split the base filename into parts
-        parts = basename.split('.')
+        parts = basename.split(".")
 
         # Check if the filename has at least three parts (prefix, number, ion)
         if len(parts) >= 3:
@@ -168,7 +169,8 @@ def cleanup_siesta_outputs(
             # Rename the file
             os.rename(filepath, new_filepath)
 
-def load_siesta_input(dirpath: Path | str, fname: str = "siesta_input.json") :
+
+def load_siesta_input(dirpath: Path | str, fname: str = "siesta_input.json"):
     """Load the AbinitInput object from a given directory.
 
     Parameters
@@ -189,6 +191,6 @@ def load_siesta_input(dirpath: Path | str, fname: str = "siesta_input.json") :
             f"Cannot load AbinitInput from directory without {fname} file."
         )
     else:
-        #print("EVERYTHING WAS FINE")
+        # print("EVERYTHING WAS FINE")
         pass
     return loadfn(siesta_input_file)

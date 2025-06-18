@@ -4,27 +4,19 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
-from typing import Union
+from typing import Optional, Union
 
-from sisl.io.siesta import stdoutSileSiesta 
-from sisl.io.siesta import xvSileSiesta
-
-#from abipy.electrons.gsr import GsrFile
-#from abipy.flowtk import events
-#from abipy.flowtk.utils import File
-from emmet.core.math import Matrix3D
-from emmet.core.math import Vector3D
+# from abipy.electrons.gsr import GsrFile
+# from abipy.flowtk import events
+# from abipy.flowtk.utils import File
+from emmet.core.math import Matrix3D, Vector3D
 from jobflow.utils import ValueEnum
-from pydantic import BaseModel
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pymatgen.core import Structure
+from sisl.io.siesta import stdoutSileSiesta, xvSileSiesta
 from typing_extensions import Self
-
-from atomate2.abinit.utils.common import LOG_FILE_NAME, MPIABORTFILE, get_event_report
 
 logger = logging.getLogger(__name__)
 
@@ -112,29 +104,30 @@ class CalculationOutput(BaseModel):
     def from_siesta_out(
         cls,
         siesta_output: stdoutSileSiesta,  # from siesta.out File
-        siesta_XV: xvSileSiesta # From XV file
+        siesta_XV: xvSileSiesta,  # From XV file
     ) -> Self:
         """Create an SIESTA output document from SIESTA outputs.
 
         Parameters
         ----------
-        output: 
+        output:
+
         Returns
         -------
         The SIESTA calculation output document.
         """
-        print (f"{siesta_XV=}")
-        sisl_structure = siesta_XV.read_geometry()  # final structure 
+        print(f"{siesta_XV=}")
+        sisl_structure = siesta_XV.read_geometry()  # final structure
         structure = sisl_structure.to.pymatgen()
 
         # In case no conduction bands were included
         try:
-            electronic_output= siesta_output.read_energy()
+            electronic_output = siesta_output.read_energy()
         except ValueError:
             cbm = None
             bandgap = None
             direct_bandgap = None
-            electronic_output={}
+            electronic_output = {}
 
         forces = None
         if siesta_output.read_force[-1](total=False) is not None:
@@ -150,8 +143,6 @@ class CalculationOutput(BaseModel):
             forces=forces,
             stress=stress,
         )
-
-
 
 
 class Calculation(BaseModel):
@@ -198,11 +189,11 @@ class Calculation(BaseModel):
         # task_name: str,
         siesta_output_file: Path | str = "siesta.out",
         siesta_MESSAGES_file: Path | str = "MESSAGES",
-        siesta_xv_file: Path |str = "siesta.XV",
+        siesta_xv_file: Path | str = "siesta.XV",
     ):
-        #abinit_log_file: Path | str = LOG_FILE_NAME,
-        #abinit_abort_file: Path | str = MPIABORTFILE,
-    #) -> tuple[Self, dict[AbinitObject, dict]]:
+        # abinit_log_file: Path | str = LOG_FILE_NAME,
+        # abinit_abort_file: Path | str = MPIABORTFILE,
+        # ) -> tuple[Self, dict[AbinitObject, dict]]:
         """Create an Abinit calculation document from a directory and file paths.
 
         Parameters
@@ -227,50 +218,52 @@ class Calculation(BaseModel):
         siesta_output_file = dir_name / siesta_output_file
         siesta_xv_file = dir_name / siesta_xv_file
         siesta_MESSAGES_file = dir_name / siesta_MESSAGES_file
-        #print(f"{siesta_output_file=}")
-        #print(f"{siesta_MESSAGES_file=}")
+        # print(f"{siesta_output_file=}")
+        # print(f"{siesta_MESSAGES_file=}")
 
-        siesta_output= stdoutSileSiesta(siesta_output_file)
+        siesta_output = stdoutSileSiesta(siesta_output_file)
         siesta_xv = xvSileSiesta(siesta_xv_file)
 
         completed_at = str(
-            datetime.fromtimestamp(os.stat(siesta_MESSAGES_file).st_mtime, tz=timezone.utc)
+            datetime.fromtimestamp(
+                os.stat(siesta_MESSAGES_file).st_mtime, tz=timezone.utc
+            )
         )
-        #print(f"{completed_at=}")
+        # print(f"{completed_at=}")
 
-        #print(f"BEFORE output_doc {siesta_output=}")
-        output_doc = CalculationOutput.from_siesta_out(siesta_output,siesta_xv)
-        
+        # print(f"BEFORE output_doc {siesta_output=}")
+        output_doc = CalculationOutput.from_siesta_out(siesta_output, siesta_xv)
+
         report = None
         has_siesta_completed = TaskState.FAILED
-         
-        #report = None
-        #has_abinit_completed = TaskState.FAILED
+
+        # report = None
+        # has_abinit_completed = TaskState.FAILED
         # TODO: How to detect which status it has here ?
         #  UNCONVERGED would be for scf/nscf/relax when it's not yet converged
         #  FAILED should be for a job that failed for other reasons.
         #  What about a job that has been killed by the run_abinit (i.e. before
         #  Slurm or PBS kills it) ?
 
-        #try:
+        # try:
         #    report = get_event_report(
         #        ofile=File(abinit_log_file), mpiabort_file=File(abinit_abort_file)
         #    )
         #    if report.run_completed:
         #        has_abinit_completed = TaskState.SUCCESS
 
-        #except (ValueError, RuntimeError, Exception) as exc:
+        # except (ValueError, RuntimeError, Exception) as exc:
         #    msg = f"{cls} exception while parsing event_report:\n{exc}"
         #    logger.critical(msg)
 
         instance = cls(
             dir_name=str(dir_name),
-            #task_name=task_name,
-            #abinit_version=abinit_gsr.abinit_version,
+            # task_name=task_name,
+            # abinit_version=abinit_gsr.abinit_version,
             has_siesta_completed=has_siesta_completed,
             completed_at=completed_at,
             output=output_doc,
             event_report=report,
         )
 
-        return instance #, None  # abinit_objects,
+        return instance  # , None  # abinit_objects,
