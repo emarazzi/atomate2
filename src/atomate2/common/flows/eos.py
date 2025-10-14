@@ -39,7 +39,7 @@ class CommonEosMaker(Maker):
         Maker to relax deformed structures for the EOS fit.
     static_maker : .Maker | None
         Maker to generate statics after each relaxation, defaults to None.
-    strain : tuple[float]
+    linear_strain : tuple[float]
         Percentage linear strain to apply as a deformation, default = -5% to 5%.
     number_of_frames : int
         Number of strain calculations to do for EOS fit, default = 6.
@@ -62,8 +62,7 @@ class CommonEosMaker(Maker):
     _store_transformation_information: bool = False
 
     def make(self, structure: Structure, prev_dir: str | Path = None) -> Flow:
-        """
-        Run an EOS flow.
+        """Run an EOS flow.
 
         Parameters
         ----------
@@ -82,7 +81,10 @@ class CommonEosMaker(Maker):
             ("relax", "static") if self.static_maker else ("relax",)
         )
         flow_output: dict[str, dict] = {
-            key: {quantity: [] for quantity in ("energy", "volume", "stress")}
+            key: {
+                quantity: []
+                for quantity in ("energy", "volume", "stress", "structure", "dir_name")
+            }
             for key in job_types
         }
 
@@ -93,6 +95,12 @@ class CommonEosMaker(Maker):
             )
             relax_flow.name = "EOS equilibrium relaxation"
 
+            try:
+                if len(relax_flow.jobs) > 1:
+                    for job in relax_flow.jobs:
+                        job.append_name(" EOS equilibrium relaxation")
+            except AttributeError:
+                pass
             flow_output["initial_relax"] = {
                 "E0": relax_flow.output.output.energy,
                 "V0": relax_flow.output.structure.volume,
@@ -151,6 +159,12 @@ class CommonEosMaker(Maker):
                 prev_dir=prev_dir,
             )
             relax_job.name += f" deformation {frame_idx}"
+            try:
+                if len(relax_job.jobs) > 1:
+                    for job in relax_job.jobs:
+                        job.append_name(f" deformation {frame_idx}")
+            except AttributeError:
+                pass
             jobs["relax"].append(relax_job)
 
             if self.static_maker:
@@ -164,9 +178,12 @@ class CommonEosMaker(Maker):
         for key in job_types:
             for idx in range(len(jobs[key])):
                 output = jobs[key][idx].output.output
+                dir_name = jobs[key][idx].output.dir_name
                 flow_output[key]["energy"] += [output.energy]
                 flow_output[key]["volume"] += [output.structure.volume]
                 flow_output[key]["stress"] += [output.stress]
+                flow_output[key]["structure"] += [output.structure]
+                flow_output[key]["dir_name"] += [dir_name]
 
         if self.postprocessor is not None:
             min_points = self.postprocessor.min_data_points
@@ -183,7 +200,7 @@ class CommonEosMaker(Maker):
             jobs["utility"] += [post_process]
 
         job_list = []
-        for key in jobs:
-            job_list += jobs[key]
+        for val in jobs.values():
+            job_list += val
 
         return Flow(jobs=job_list, output=flow_output, name=self.name)

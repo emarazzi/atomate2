@@ -50,8 +50,7 @@ class BandStructureMaker(Maker):
         structure: Structure,
         restart_from: str | Path | None = None,
     ) -> Flow:
-        """
-        Create a band structure flow.
+        """Create a band structure flow.
 
         Parameters
         ----------
@@ -109,8 +108,7 @@ class RelaxFlowMaker(Maker):
         structure: Structure | None = None,
         restart_from: str | Path | None = None,
     ) -> Flow:
-        """
-        Create a relaxation flow.
+        """Create a relaxation flow.
 
         Parameters
         ----------
@@ -129,7 +127,7 @@ class RelaxFlowMaker(Maker):
         )
         jobs = [relax_job1]
         for rlx_maker in self.relaxation_makers[1:]:
-            rlx_job = rlx_maker.make(restart_from=jobs[-1].output.dir_name)
+            rlx_job = rlx_maker.make(prev_outputs=jobs[-1].output.dir_name)
             jobs.append(rlx_job)
         return Flow(jobs, output=jobs[-1].output, name=self.name)
 
