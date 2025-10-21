@@ -17,7 +17,6 @@ from atomate2.abinit.sets.base import (
     AbinitInputGenerator,
     AbinitInputSet,
     as_pseudo_table,
-    set_workdir,
 )
 from atomate2.abinit.utils.common import INDIR_NAME, OUTDIR_NAME, InitializationError
 
@@ -57,7 +56,7 @@ def test_abinit_input_set_init(abinit_test_dir):
 
 def test_abinit_input_set_set_workdir():
     with ScratchDir(".") as tmp:
-        indir, outdir, tmpdir = set_workdir("someworkdir")
+        indir, outdir, tmpdir = AbinitInputSet.set_workdir("someworkdir")
         indata = os.path.join("someworkdir", "indata")
         outdata = os.path.join("someworkdir", "outdata")
         tmpdata = os.path.join("someworkdir", "tmpdata")
@@ -88,11 +87,11 @@ def test_abinit_input_set_write_input(abinit_test_dir):
         assert os.path.isdir("testdir/tmpdata")
         assert "run.abi" in dirlist
         assert "abinit_input.json" in dirlist
-        with open("testdir/run.abi") as file:
-            abistr = file.read()
+        with open("testdir/run.abi") as f:
+            abistr = f.read()
             assert "ecut" in abistr
-        with open("testdir/abinit_input.json") as file:
-            abijsonstr = file.read()
+        with open("testdir/abinit_input.json") as f:
+            abijsonstr = f.read()
             assert "@module" in abijsonstr
         with pytest.raises(FileExistsError):
             ais.write_input("testdir", overwrite=False)
@@ -133,8 +132,8 @@ def test_abinit_input_set_write_input(abinit_test_dir):
         assert os.path.exists(in_den)
         assert os.path.isfile(in_den)
         assert not os.path.islink(in_den)
-        with open("testdir/run.abi") as file:
-            abistr = file.read()
+        with open("testdir/run.abi") as f:
+            abistr = f.read()
             assert "irdden 1" in abistr
         del ais.abinit_input["irdden"]
 
@@ -218,40 +217,36 @@ class SomeAbinitInputSetGenerator(AbinitInputGenerator):
 
 
 def test_generator_check_format_prev_dirs():
-    input_gen = AbinitInputGenerator(factory=mocked_factory)
-    prev_outputs = input_gen.check_format_prev_dirs(None)
+    aisg = AbinitInputGenerator(factory=mocked_factory)
+    prev_outputs = aisg.check_format_prev_dirs(None)
     assert prev_outputs is None
-    prev_outputs = input_gen.check_format_prev_dirs("/some/path")
+    prev_outputs = aisg.check_format_prev_dirs("/some/path")
     assert prev_outputs == ["/some/path"]
-    prev_outputs = input_gen.check_format_prev_dirs(Path("/some/path"))
+    prev_outputs = aisg.check_format_prev_dirs(Path("/some/path"))
     assert prev_outputs == ["/some/path"]
-    prev_outputs = input_gen.check_format_prev_dirs(
-        ["/some/path", Path("/some/other/path")]
-    )
+    prev_outputs = aisg.check_format_prev_dirs(["/some/path", Path("/some/other/path")])
     assert prev_outputs == ["/some/path", "/some/other/path"]
 
 
 def test_generator_resolve_dep():
-    input_gen = AbinitInputGenerator(factory=mocked_factory)
+    aisg = AbinitInputGenerator(factory=mocked_factory)
     with ScratchDir(".") as tmpdir:
         prev_output_dir = os.path.join(tmpdir, "prev_output")
         prev_outdata = os.path.join(prev_output_dir, OUTDIR_NAME)
         makedirs_p(prev_outdata)
         Path(os.path.join(prev_outdata, "out_DEN")).touch()
-        irdvars, restart_file = input_gen.resolve_dep_exts(
+        irdvars, restart_file = aisg.resolve_dep_exts(
             prev_output_dir, exts=("WFK", "DEN")
         )
         assert irdvars == {"irdden": 1}
         assert restart_file == [(os.path.join(prev_outdata, "out_DEN"), "in_DEN")]
         Path(os.path.join(prev_outdata, "out_WFK")).touch()
-        irdvars, restart_file = input_gen.resolve_dep_exts(
+        irdvars, restart_file = aisg.resolve_dep_exts(
             prev_output_dir, exts=("WFK", "DEN")
         )
         assert irdvars == {"irdwfk": 1}
         assert restart_file == [(os.path.join(prev_outdata, "out_WFK"), "in_WFK")]
-        irdvars, restart_file = input_gen.resolve_dep_exts(
-            prev_output_dir, exts=("DEN",)
-        )
+        irdvars, restart_file = aisg.resolve_dep_exts(prev_output_dir, exts=("DEN",))
         assert irdvars == {"irdden": 1}
         assert restart_file == [(os.path.join(prev_outdata, "out_DEN"), "in_DEN")]
     with ScratchDir(".") as tmpdir:
@@ -259,7 +254,7 @@ def test_generator_resolve_dep():
         prev_outdata = os.path.join(prev_output_dir, OUTDIR_NAME)
         makedirs_p(prev_outdata)
         Path(os.path.join(prev_outdata, "out_WFK")).touch()
-        irdvars, restart_file = input_gen.resolve_dep_exts(
+        irdvars, restart_file = aisg.resolve_dep_exts(
             prev_output_dir, exts=("WFK", "DEN")
         )
         assert irdvars == {"irdwfk": 1}
@@ -267,12 +262,12 @@ def test_generator_resolve_dep():
         with pytest.raises(
             InitializationError, match=r"Cannot find DDB file to restart from."
         ):
-            input_gen.resolve_dep_exts(prev_output_dir, exts=("DDB",))
+            aisg.resolve_dep_exts(prev_output_dir, exts=("DDB",))
         with pytest.raises(
             InitializationError,
             match=r"Cannot find DDB or DVDB or DKK file to restart from.",
         ):
-            input_gen.resolve_dep_exts(prev_output_dir, exts=("DDB", "DVDB", "DKK"))
+            aisg.resolve_dep_exts(prev_output_dir, exts=("DDB", "DVDB", "DKK"))
     with ScratchDir(".") as tmpdir:
         prev_output_dir = os.path.join(tmpdir, "prev_output")
         prev_outdata = os.path.join(prev_output_dir, OUTDIR_NAME)
@@ -280,15 +275,11 @@ def test_generator_resolve_dep():
         Path(os.path.join(prev_outdata, "out_TIM1_DEN")).touch()
         Path(os.path.join(prev_outdata, "out_TIM2_DEN")).touch()
         Path(os.path.join(prev_outdata, "out_TIM15_DEN")).touch()
-        irdvars, restart_file = input_gen.resolve_dep_exts(
-            prev_output_dir, exts=("DEN",)
-        )
+        irdvars, restart_file = aisg.resolve_dep_exts(prev_output_dir, exts=("DEN",))
         assert irdvars == {"irdden": 1}
         assert restart_file == [(os.path.join(prev_outdata, "out_TIM15_DEN"), "in_DEN")]
         Path(os.path.join(prev_outdata, "out_DEN")).touch()
-        irdvars, restart_file = input_gen.resolve_dep_exts(
-            prev_output_dir, exts=("DEN",)
-        )
+        irdvars, restart_file = aisg.resolve_dep_exts(prev_output_dir, exts=("DEN",))
         assert irdvars == {"irdden": 1}
         assert restart_file == [(os.path.join(prev_outdata, "out_DEN"), "in_DEN")]
 
@@ -376,9 +367,9 @@ def test_generator_set_kpt_vars(abinit_test_dir):
     abinit_input = load_abinit_input(
         os.path.join(abinit_test_dir, "abinit_inputs"), fname="abinit_input_Si.json"
     )
-    aig._set_kpt_vars(abinit_input, {"grid_density": 300})  # noqa: SLF001
+    aig._set_kpt_vars(abinit_input, {"grid_density": 300})
     assert np.array_equal(abinit_input["ngkpt"], [5, 5, 5])
 
-    aig._set_kpt_vars(abinit_input, {"line_density": 10})  # noqa: SLF001
+    aig._set_kpt_vars(abinit_input, {"line_density": 10})
     assert abinit_input["nkpt"] == 92
     assert "ngkpt" not in abinit_input

@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-from atomate2 import SETTINGS
 from atomate2.common.flows.phonons import BasePhononMaker
-from atomate2.forcefields import _get_formatted_ff_name
-from atomate2.forcefields.jobs import ForceFieldRelaxMaker, ForceFieldStaticMaker
-
-if TYPE_CHECKING:
-    from typing_extensions import Self
-
-    from atomate2.forcefields import MLFF
+from atomate2.forcefields.jobs import (
+    CHGNetRelaxMaker,
+    CHGNetStaticMaker,
+    ForceFieldRelaxMaker,
+    ForceFieldStaticMaker,
+)
 
 
 @dataclass
@@ -54,8 +52,6 @@ class PhononMaker(BasePhononMaker):
         displacement distance for phonons
     min_length: float
         min length of the supercell that will be built
-    max_length: float
-        max length of the supercell that will be built
     prefer_90_degrees: bool
         if set to True, supercell algorithm will first try to find a supercell
         with 3 90 degree angles
@@ -78,8 +74,8 @@ class PhononMaker(BasePhononMaker):
           High-throughput electronic band structure calculations:
           Challenges and tools. Computational Materials Science,
           49(2), 299-312. doi:10.1016/j.commatsci.2010.05.010.
-          We will, however, use seekpath and primitive structures
-          as determined by phonopy to compute the phonon band structure
+          We will however use seekpath and primitive structures
+          as determined by from phonopy to compute the phonon band structure
     bulk_relax_maker : .ForceFieldRelaxMaker or None
         A maker to perform a tight relaxation on the bulk.
         Set to ``None`` to skip the
@@ -107,7 +103,7 @@ class PhononMaker(BasePhononMaker):
         it relies on phonopy to handle the relationship
         to the primitive cell and not pymatgen
     code: str
-        determines the DFT or force field code.
+        determines the dft or force field code.
     store_force_constants: bool
         if True, force constants will be stored
     socket: bool
@@ -116,23 +112,20 @@ class PhononMaker(BasePhononMaker):
 
     name: str = "phonon"
     sym_reduce: bool = True
-    symprec: float = SETTINGS.PHONON_SYMPREC
+    symprec: float = 1e-4
     displacement: float = 0.01
     min_length: float | None = 20.0
     prefer_90_degrees: bool = True
-    max_length: float | None = None
     get_supercell_size_kwargs: dict = field(default_factory=dict)
     use_symmetrized_structure: Literal["primitive", "conventional"] | None = None
     bulk_relax_maker: ForceFieldRelaxMaker | None = field(
-        default_factory=lambda: ForceFieldRelaxMaker(
-            force_field_name="CHGNet", relax_kwargs={"fmax": 1e-5}
-        )
+        default_factory=lambda: CHGNetRelaxMaker(relax_kwargs={"fmax": 0.00001})
     )
     static_energy_maker: ForceFieldStaticMaker | None = field(
-        default_factory=lambda: ForceFieldStaticMaker(force_field_name="CHGNet")
+        default_factory=CHGNetStaticMaker
     )
     phonon_displacement_maker: ForceFieldStaticMaker = field(
-        default_factory=lambda: ForceFieldStaticMaker(force_field_name="CHGNet")
+        default_factory=CHGNetStaticMaker
     )
     create_thermal_displacements: bool = False
     generate_frequencies_eigenvectors_kwargs: dict = field(default_factory=dict)
@@ -152,45 +145,3 @@ class PhononMaker(BasePhononMaker):
         calculations are performed for each ordering (relax -> static)
         """
         return
-
-    @classmethod
-    def from_force_field_name(
-        cls,
-        force_field_name: str | MLFF,
-        relax_initial_structure: bool = True,
-        **kwargs,
-    ) -> Self:
-        """
-        Create a phonon flow from a forcefield name.
-
-        Parameters
-        ----------
-        force_field_name : str or .MLFF
-            The name of the force field.
-        relax_initial_structure: bool = True
-            Whether to relax the initial structure before performing an EOS fit.
-        **kwargs
-            Additional kwargs to pass to PhononMaker
-
-
-        Returns
-        -------
-        PhononMaker
-        """
-        force_field_name = _get_formatted_ff_name(force_field_name)
-        if relax_initial_structure:
-            kwargs.update(
-                bulk_relax_maker=ForceFieldRelaxMaker(
-                    force_field_name=force_field_name, relax_kwargs={"fmax": 1e-5}
-                )
-            )
-        kwargs.update(
-            static_energy_maker=ForceFieldStaticMaker(
-                force_field_name=force_field_name
-            ),
-            phonon_displacement_maker=ForceFieldStaticMaker(
-                force_field_name=force_field_name
-            ),
-            born_maker=None,
-        )
-        return cls(name=f"{force_field_name.split('MLFF.')[-1]} Phonon Maker", **kwargs)

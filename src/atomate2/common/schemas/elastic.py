@@ -1,7 +1,6 @@
 """Schemas for elastic tensor fitting and related properties."""
 
 from copy import deepcopy
-from enum import Enum
 from typing import Optional
 
 import numpy as np
@@ -18,7 +17,6 @@ from pymatgen.analysis.elasticity import (
 from pymatgen.core import Structure
 from pymatgen.core.tensors import TensorMapping
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
-from typing_extensions import Self
 
 from atomate2 import SETTINGS
 
@@ -108,9 +106,6 @@ class FittingData(BaseModel):
     job_dirs: Optional[list[Optional[str]]] = Field(
         None, description="The directories where the deformation jobs were run."
     )
-    failed_uuids: Optional[list[str]] = Field(
-        None, description="The uuids of perturbations that were not completed"
-    )
 
 
 class ElasticTensorDocument(BaseModel):
@@ -120,12 +115,6 @@ class ElasticTensorDocument(BaseModel):
     ieee_format: Optional[MatrixVoigt] = Field(
         None, description="Elastic tensor in IEEE format."
     )
-
-
-class ElasticWarnings(Enum):
-    """Warnings for elastic document."""
-
-    FAILED_PERTURBATIONS = "failed_perturbations"
 
 
 class ElasticDocument(StructureMetadata):
@@ -152,7 +141,6 @@ class ElasticDocument(StructureMetadata):
     order: Optional[int] = Field(
         None, description="Order of the expansion of the elastic tensor."
     )
-    warnings: Optional[list[str]] = Field(None, description="Warnings.")
 
     @classmethod
     def from_stresses(
@@ -167,9 +155,9 @@ class ElasticDocument(StructureMetadata):
         equilibrium_stress: Optional[Matrix3D] = None,
         symprec: float = SETTINGS.SYMPREC,
         allow_elastically_unstable_structs: bool = True,
-        failed_uuids: list[str] = None,
-    ) -> Self:
-        """Create an elastic document from strains and stresses.
+    ) -> "ElasticDocument":
+        """
+        Create an elastic document from strains and stresses.
 
         Parameters
         ----------
@@ -199,11 +187,8 @@ class ElasticDocument(StructureMetadata):
         allow_elastically_unstable_structs : bool
             Whether to allow the ElasticDocument to still complete in the event that
             the structure is elastically unstable.
-        failed_uuids: list of str
-            The uuids of perturbations that were not completed
         """
         strains = [d.green_lagrange_strain for d in deformations]
-        elastic_warnings = []
 
         if symprec is not None:
             strains, stresses, uuids, job_dirs = expand_strains(
@@ -218,9 +203,7 @@ class ElasticDocument(StructureMetadata):
         if equilibrium_stress:
             eq_stress = -0.1 * Stress(equilibrium_stress)
 
-        pk_stresses = [
-            s.piola_kirchoff_2(d) for s, d in zip(stresses, deformations, strict=True)
-        ]
+        pk_stresses = [s.piola_kirchoff_2(d) for s, d in zip(stresses, deformations)]
 
         if order is None:
             order = 2 if len(stresses) < 70 else 3  # TODO: Figure this out better
@@ -253,9 +236,6 @@ class ElasticDocument(StructureMetadata):
 
         eq_stress = eq_stress.tolist() if eq_stress is not None else eq_stress
 
-        if failed_uuids:
-            elastic_warnings.append(ElasticWarnings.FAILED_PERTURBATIONS.value)
-
         return cls.from_structure(
             structure=structure,
             meta_structure=structure,
@@ -273,9 +253,7 @@ class ElasticDocument(StructureMetadata):
                 deformations=[d.tolist() for d in deformations],
                 uuids=uuids,
                 job_dirs=job_dirs,
-                failed_uuids=failed_uuids,
             ),
-            warnings=elastic_warnings or None,
         )
 
 

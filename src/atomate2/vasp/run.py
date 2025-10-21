@@ -1,4 +1,10 @@
-"""Functions to run VASP."""
+"""
+Functions to run VASP.
+
+Todo
+----
+- Implement vasp_ncl and auto_ncl in custodian.
+"""
 
 from __future__ import annotations
 

@@ -47,7 +47,8 @@ class AmsetMaker(Maker):
         deformation_dir: str | Path = None,
         bandstructure_dir: str | Path = None,
     ) -> Response:
-        """Run an AMSET calculation.
+        """
+        Run an AMSET calculation.
 
         Parameters
         ----------

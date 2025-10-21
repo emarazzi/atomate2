@@ -14,9 +14,11 @@ from pymatgen.core import Structure
 from pymatgen.io.phonopy import get_phonopy_structure, get_pmg_structure
 from pymatgen.phonon.bandstructure import PhononBandStructureSymmLine
 from pymatgen.phonon.dos import PhononDos
+from pymatgen.transformations.advanced_transformations import (
+    CubicSupercellTransformation,
+)
 
 from atomate2.common.schemas.phonons import ForceConstants, PhononBSDOSDoc, get_factor
-from atomate2.common.utils import get_supercell_matrix
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -55,15 +57,10 @@ def get_total_energy_per_cell(
 
 @job
 def get_supercell_size(
-    structure: Structure,
-    min_length: float,
-    max_length: float,
-    prefer_90_degrees: bool,
-    allow_orthorhombic: bool = False,
-    **kwargs,
+    structure: Structure, min_length: float, prefer_90_degrees: bool, **kwargs
 ) -> list[list[float]]:
     """
-    Determine supercell size with given min_length and max_length.
+    Determine supercell size with given min_length.
 
     Parameters
     ----------
@@ -71,23 +68,51 @@ def get_supercell_size(
         Input structure that will be used to determine supercell
     min_length: float
         minimum length of cell in Angstrom
-    max_length: float
-        maximum length of cell in Angstrom
     prefer_90_degrees: bool
         if True, the algorithm will try to find a cell with 90 degree angles first
-    allow_orthorhombic: bool
-        if True, orthorhombic supercells are allowed
     **kwargs:
         Additional parameters that can be set.
     """
-    return get_supercell_matrix(
-        allow_orthorhombic=allow_orthorhombic,
-        max_length=max_length,
-        min_length=min_length,
-        prefer_90_degrees=prefer_90_degrees,
-        structure=structure,
-        **kwargs,
-    )
+    kwargs.setdefault("min_atoms", None)
+    kwargs.setdefault("force_diagonal", False)
+
+    if not prefer_90_degrees:
+        kwargs.setdefault("max_atoms", None)
+        transformation = CubicSupercellTransformation(
+            min_length=min_length,
+            min_atoms=kwargs["min_atoms"],
+            max_atoms=kwargs["max_atoms"],
+            force_diagonal=kwargs["force_diagonal"],
+            force_90_degrees=False,
+        )
+        transformation.apply_transformation(structure=structure)
+    else:
+        max_atoms = kwargs.get("max_atoms", 1000)
+        kwargs.setdefault("angle_tolerance", 1e-2)
+        try:
+            transformation = CubicSupercellTransformation(
+                min_length=min_length,
+                min_atoms=kwargs["min_atoms"],
+                max_atoms=max_atoms,
+                force_diagonal=kwargs["force_diagonal"],
+                force_90_degrees=True,
+                angle_tolerance=kwargs["angle_tolerance"],
+            )
+            transformation.apply_transformation(structure=structure)
+
+        except AttributeError:
+            kwargs.setdefault("max_atoms", None)
+
+            transformation = CubicSupercellTransformation(
+                min_length=min_length,
+                min_atoms=kwargs["min_atoms"],
+                max_atoms=kwargs["max_atoms"],
+                force_diagonal=kwargs["force_diagonal"],
+                force_90_degrees=False,
+            )
+            transformation.apply_transformation(structure=structure)
+
+    return transformation.transformation_matrix.tolist()
 
 
 @job(data=[Structure])
@@ -122,23 +147,17 @@ def generate_phonon_displacements(
         scheme to generate kpath
     code:
         code to perform the computations
-
-    Returns
-    -------
-    List[Structure]
-        Displaced structures
     """
     warnings.warn(
         "Initial magnetic moments will not be considered for the determination "
         "of the symmetry of the structure and thus will be removed now.",
-        stacklevel=2,
+        stacklevel=1,
     )
-    if "magmom" in structure.site_properties:
-        # remove_site_property is in-place so make a structure copy first
-        no_mag_struct = structure.copy().remove_site_property(property_name="magmom")
-    else:
-        no_mag_struct = structure
-    cell = get_phonopy_structure(no_mag_struct)
+    cell = get_phonopy_structure(
+        structure.remove_site_property(property_name="magmom")
+        if "magmom" in structure.site_properties
+        else structure
+    )
     factor = get_factor(code)
 
     # a bit of code repetition here as I currently
@@ -152,7 +171,7 @@ def generate_phonon_displacements(
     if cell.magnetic_moments is not None and primitive_matrix == "auto":
         if np.any(cell.magnetic_moments != 0.0):
             raise ValueError(
-                "For materials with magnetic moments, "
+                "For materials with magnetic moments specified "
                 "use_symmetrized_structure must be 'primitive'"
             )
         cell.magnetic_moments = None

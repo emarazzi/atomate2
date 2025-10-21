@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 from jobflow import Flow, Response, job
@@ -20,7 +20,7 @@ from atomate2.common.schemas.defects import CCDDocument
 from atomate2.utils.path import strip_hostname
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Iterable
     from pathlib import Path
 
     from emmet.core.tasks import TaskDoc
@@ -300,7 +300,7 @@ def bulk_supercell_calculation(
 def spawn_defect_q_jobs(
     defect: Defect,
     relax_maker: RelaxMaker,
-    relaxed_sc_lattice: Lattice | None = None,
+    relaxed_sc_lattice: Lattice,
     sc_mat: NDArray | None = None,
     defect_index: int | str = "",
     add_info: dict | None = None,
@@ -329,7 +329,7 @@ def spawn_defect_q_jobs(
         By default only the defect object and charge state are stored.
     relaxed_sc_lattice:
         The lattice of the relaxed supercell. If provided, the lattice parameters
-        of the supercell will be set to value specified. Otherwise, the lattice it will
+        of the supercell will be set to value specified.  Otherwise, the lattice it will
         only by set by `defect.structure` and `sc_mat`.
     validate_charge:
         Whether to validate the charge states of the defect after the atomic relaxation.
@@ -355,8 +355,7 @@ def spawn_defect_q_jobs(
     sc_def_struct = defect.get_supercell_structure(
         sc_mat=sc_mat, relax_radius=relax_radius, perturb=perturb
     )
-    if relaxed_sc_lattice is not None:
-        sc_def_struct.lattice = relaxed_sc_lattice
+    sc_def_struct.lattice = relaxed_sc_lattice
     if sc_mat is not None:
         sc_mat = np.array(sc_mat).tolist()
     for qq in defect.get_charge_states():
@@ -460,7 +459,7 @@ def get_defect_entry(charge_state_summary: dict, bulk_summary: dict) -> list[dic
                 "bulk_dir_name": bulk_dir_name,
                 "bulk_locpot": bulk_locpot,
                 "bulk_uuid": bulk_summary.get("uuid"),
-                "defect_uuid": qq_summary.get("uuid"),
+                "defect_uuid": qq_summary.get("uuid", None),
             }
         )
     return defect_ent_res

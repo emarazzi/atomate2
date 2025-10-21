@@ -9,9 +9,9 @@ def test_cp2k_input_set(cp2k_test_dir, cp2k_test_inputs):
 def test_recursive_update():
     from atomate2.cp2k.sets.base import recursive_update
 
-    in_dict = {"activate_hybrid": {"hybrid_functional": "HSE06"}}
-    update_dict = {"activate_hybrid": {"cutoff_radius": 8}}
-    actual = recursive_update(in_dict, update_dict)
+    d = {"activate_hybrid": {"hybrid_functional": "HSE06"}}
+    u = {"activate_hybrid": {"cutoff_radius": 8}}
+    dnew = recursive_update(d, u)
 
-    expected = {"activate_hybrid": {"hybrid_functional": "HSE06", "cutoff_radius": 8}}
-    assert actual == expected
+    assert dnew["activate_hybrid"]["hybrid_functional"] == "HSE06"
+    assert dnew["activate_hybrid"]["cutoff_radius"] == 8

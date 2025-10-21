@@ -11,16 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from pymatgen.io.vasp.sets import (
-    MP24RelaxSet,
-    MP24StaticSet,
-    MPRelaxSet,
-    MPScanRelaxSet,
-    MPScanStaticSet,
-    MPStaticSet,
-)
-
 from atomate2.vasp.jobs.base import BaseVaspMaker
+from atomate2.vasp.sets.mp import (
+    MPGGARelaxSetGenerator,
+    MPGGAStaticSetGenerator,
+    MPMetaGGARelaxSetGenerator,
+    MPMetaGGAStaticSetGenerator,
+)
 
 if TYPE_CHECKING:
     from atomate2.vasp.sets.base import VaspInputGenerator
@@ -57,9 +54,7 @@ class MPGGARelaxMaker(BaseVaspMaker):
 
     name: str = "MP GGA relax"
     input_set_generator: VaspInputGenerator = field(
-        default_factory=lambda: MPRelaxSet(
-            force_gamma=True, auto_metal_kpoints=True, inherit_incar=False
-        )
+        default_factory=MPGGARelaxSetGenerator
     )
 
 
@@ -94,9 +89,7 @@ class MPGGAStaticMaker(BaseVaspMaker):
 
     name: str = "MP GGA static"
     input_set_generator: VaspInputGenerator = field(
-        default_factory=lambda: MPStaticSet(
-            force_gamma=True, auto_metal_kpoints=True, inherit_incar=False
-        )
+        default_factory=MPGGAStaticSetGenerator
     )
 
 
@@ -131,15 +124,12 @@ class MPPreRelaxMaker(BaseVaspMaker):
 
     name: str = "MP pre-relax"
     input_set_generator: VaspInputGenerator = field(
-        default_factory=lambda: MPScanRelaxSet(
-            auto_ismear=False,
-            inherit_incar=False,
+        default_factory=lambda: MPMetaGGARelaxSetGenerator(
             user_incar_settings={
                 "EDIFFG": -0.05,
                 "GGA": "PS",
                 "LWAVE": True,
                 "LCHARG": True,
-                "LELF": False,  # prevents KPAR > 1
                 "METAGGA": None,
             },
         )
@@ -177,16 +167,7 @@ class MPMetaGGARelaxMaker(BaseVaspMaker):
 
     name: str = "MP meta-GGA relax"
     input_set_generator: VaspInputGenerator = field(
-        default_factory=lambda: MPScanRelaxSet(
-            auto_ismear=False,
-            inherit_incar=False,
-            user_incar_settings={
-                "GGA": None,  # unset GGA, shouldn't be set anyway but best be sure
-                "LCHARG": True,
-                "LWAVE": True,
-                "LELF": False,  # prevents KPAR > 1
-            },
-        )
+        default_factory=MPMetaGGARelaxSetGenerator
     )
 
 
@@ -221,131 +202,5 @@ class MPMetaGGAStaticMaker(BaseVaspMaker):
 
     name: str = "MP meta-GGA static"
     input_set_generator: VaspInputGenerator = field(
-        default_factory=lambda: MPScanStaticSet(
-            auto_ismear=False,
-            inherit_incar=False,
-            user_incar_settings={
-                "ALGO": "FAST",
-                "GGA": None,  # unset GGA, shouldn't be set anyway but best be sure
-                "LCHARG": True,
-                "LWAVE": False,
-                "LVHAR": None,  # not needed, unset
-                "LELF": False,  # prevents KPAR > 1
-            },
-        )
-    )
-
-
-@dataclass
-class MP24PreRelaxMaker(BaseVaspMaker):
-    """
-    Maker to create MP2024 pre-relaxation jobs with PBEsol.
-
-    Parameters
-    ----------
-    name : str
-        The job name.
-    input_set_generator : .VaspInputGenerator
-        A generator used to make the input set.
-    write_input_set_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.write_vasp_input_set`.
-    copy_vasp_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.copy_vasp_outputs`.
-    run_vasp_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.run_vasp`.
-    task_document_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.TaskDoc.from_directory`.
-    stop_children_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.should_stop_children`.
-    write_additional_data : dict
-        Additional data to write to the current directory. Given as a dict of
-        {filename: data}. Note that if using FireWorks, dictionary keys cannot contain
-        the "." character which is typically used to denote file extensions. To avoid
-        this, use the ":" character, which will automatically be converted to ".". E.g.
-        ``{"my_file:txt": "contents of the file"}``.
-    """
-
-    name: str = "MP24 PBEsol pre-relaxation"
-    input_set_generator: VaspInputGenerator = field(
-        default_factory=lambda: MP24RelaxSet(
-            xc_functional="PBEsol", user_incar_settings={"LWAVE": True}
-        )
-    )
-
-
-@dataclass
-class MP24RelaxMaker(BaseVaspMaker):
-    """
-    Maker to create MP2024 relaxation jobs with r2SCAN.
-
-    Parameters
-    ----------
-    name : str
-        The job name.
-    input_set_generator : .VaspInputGenerator
-        A generator used to make the input set.
-    write_input_set_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.write_vasp_input_set`.
-    copy_vasp_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.copy_vasp_outputs`.
-    run_vasp_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.run_vasp`.
-    task_document_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.TaskDoc.from_directory`.
-    stop_children_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.should_stop_children`.
-    write_additional_data : dict
-        Additional data to write to the current directory. Given as a dict of
-        {filename: data}. Note that if using FireWorks, dictionary keys cannot contain
-        the "." character which is typically used to denote file extensions. To avoid
-        this, use the ":" character, which will automatically be converted to ".". E.g.
-        ``{"my_file:txt": "contents of the file"}``.
-    """
-
-    name: str = "MP24 r2SCAN relaxation"
-    input_set_generator: VaspInputGenerator = field(
-        default_factory=lambda: MP24RelaxSet(
-            xc_functional="r2SCAN", user_incar_settings={"LWAVE": True}
-        )
-    )
-
-
-@dataclass
-class MP24StaticMaker(BaseVaspMaker):
-    """
-    Maker to create MP2024 static jobs with r2SCAN.
-
-    Parameters
-    ----------
-    name : str
-        The job name.
-    input_set_generator : .VaspInputGenerator
-        A generator used to make the input set.
-    write_input_set_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.write_vasp_input_set`.
-    copy_vasp_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.copy_vasp_outputs`.
-    run_vasp_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.run_vasp`.
-    task_document_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.TaskDoc.from_directory`.
-    stop_children_kwargs : dict
-        Keyword arguments that will get passed to :obj:`.should_stop_children`.
-    write_additional_data : dict
-        Additional data to write to the current directory. Given as a dict of
-        {filename: data}. Note that if using FireWorks, dictionary keys cannot contain
-        the "." character which is typically used to denote file extensions. To avoid
-        this, use the ":" character, which will automatically be converted to ".". E.g.
-        ``{"my_file:txt": "contents of the file"}``.
-    """
-
-    name: str = "MP24 r2SCAN static"
-    input_set_generator: VaspInputGenerator = field(
-        default_factory=lambda: MP24StaticSet(
-            xc_functional="r2SCAN",
-            user_incar_settings={
-                "LELF": True,  # want to save this data?
-                "KPAR": 1,  # b/c LELF = True mandates KPAR = 1
-            },
-        )
+        default_factory=MPMetaGGAStaticSetGenerator
     )

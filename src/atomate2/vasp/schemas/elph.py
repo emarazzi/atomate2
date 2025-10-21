@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from pymatgen.core import Structure
 from pymatgen.electronic_structure.bandstructure import BandStructure
 from pymatgen.electronic_structure.core import Spin
-from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +116,7 @@ class ElectronPhononRenormalisationDoc(StructureMetadata):
         elph_uuid: str,
         elph_dir: str,
         original_structure: Structure,
-    ) -> Self:
+    ) -> "ElectronPhononRenormalisationDoc":
         """
         Calculate an electron-phonon renormalisation document from band structures.
 
