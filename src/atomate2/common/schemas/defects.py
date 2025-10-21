@@ -1,9 +1,9 @@
 """General schemas for defect workflow outputs."""
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from itertools import starmap
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import numpy as np
 from emmet.core.tasks import TaskDoc
@@ -12,7 +12,6 @@ from pymatgen.analysis.defects.core import Defect
 from pymatgen.analysis.defects.thermo import DefectEntry, FormationEnergyDiagram
 from pymatgen.core import Structure
 from pymatgen.entries.computed_entries import ComputedEntry, ComputedStructureEntry
-from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +80,7 @@ class FormationEnergyDiagramDocument(BaseModel):
         cls,
         fed: FormationEnergyDiagram,
         **kwargs,
-    ) -> Self:
+    ) -> "FormationEnergyDiagramDocument":
         """Create a document from a `FormationEnergyDiagram` object.
 
         Args:
@@ -205,7 +204,7 @@ class CCDDocument(BaseModel):
         static_uuids2: list[str],
         relaxed_uuid1: str,
         relaxed_uuid2: str,
-    ) -> Self:
+    ) -> "CCDDocument":
         """Create a CCDDocument from a lists of structures and energies.
 
         The directories and the UUIDs of the static calculations are also provided as
@@ -240,21 +239,25 @@ class CCDDocument(BaseModel):
         """
 
         def get_cs_entry(
-            struct: Structure, energy: float, dir_name: str, uuid: str
+            struct: Structure,
+            energy: float,
+            dir_name: str,
+            uuid: str,
         ) -> ComputedStructureEntry:
-            data = {"dir_name": dir_name, "uuid": uuid}
-            return ComputedStructureEntry(structure=struct, energy=energy, data=data)
+            return ComputedStructureEntry(
+                structure=struct,
+                energy=energy,
+                data={"dir_name": dir_name, "uuid": uuid},
+            )
 
         entries1 = list(
             starmap(
-                get_cs_entry,
-                zip(structures1, energies1, static_dirs1, static_uuids1, strict=True),
+                get_cs_entry, zip(structures1, energies1, static_dirs1, static_uuids1)
             )
         )
         entries2 = list(
             starmap(
-                get_cs_entry,
-                zip(structures2, energies2, static_dirs2, static_uuids2, strict=True),
+                get_cs_entry, zip(structures2, energies2, static_dirs2, static_uuids2)
             )
         )
 
@@ -267,8 +270,9 @@ class CCDDocument(BaseModel):
         entries2: list[ComputedStructureEntry],
         relaxed_uuid1: Optional[str] = None,
         relaxed_uuid2: Optional[str] = None,
-    ) -> Self:
-        """Create a CCDTaskDocument from a list of distorted calculations.
+    ) -> "CCDDocument":
+        """
+        Create a CCDTaskDocument from a list of distorted calculations.
 
         Parameters
         ----------
@@ -280,6 +284,7 @@ class CCDDocument(BaseModel):
             UUID of relaxed calculation in charge state (q1).
         relaxed_uuid1
             UUID of relaxed calculation in charge state (q2).
+
         """
 
         def find_entry(
@@ -395,7 +400,7 @@ def sort_pos_dist(
     d0 = dist(s1, s2)
 
     d_vs_s = []
-    for q1, q2, s in zip(d1, d2, list_in, strict=True):
+    for q1, q2, s in zip(d1, d2, list_in):
         sign = +1
         if q1 < q2 and q2 > d0:
             sign = -1
@@ -424,7 +429,7 @@ def get_dQ(ref: Structure, distorted: Structure) -> float:  # noqa: N802
         np.sum(
             [
                 x[0].distance(x[1]) ** 2 * x[0].specie.atomic_mass
-                for x in zip(ref, distorted, strict=True)
+                for x in zip(ref, distorted)
             ],
         ),
     )

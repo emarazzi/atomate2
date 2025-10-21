@@ -10,8 +10,6 @@ from typing import TYPE_CHECKING, Any
 
 from monty.json import MontyDecoder, MSONable, jsanitize
 
-from atomate2.abinit.utils.common import OUTDIR_NAME
-
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -19,7 +17,8 @@ if TYPE_CHECKING:
     from abipy.flowtk.events import AbinitEvent
     from abipy.flowtk.utils import Directory
     from jobflow import Flow, Job
-    from typing_extensions import Self
+
+from atomate2.abinit.utils.common import OUTDIR_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ class JobHistory(collections.deque, MSONable):
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> Self:
+    def from_dict(cls, d: dict) -> JobHistory:
         """Create instance of the history from its dictionary representation."""
         dec = MontyDecoder()
         return cls([dec.process_decoded(i) for i in d["items"]])
@@ -56,7 +55,7 @@ class JobHistory(collections.deque, MSONable):
         self, job: Job | Flow, initialization_info: Any | None = None
     ) -> None:
         """Log initialization information about the job."""
-        details = {"job_class": type(job).__name__}
+        details = {"job_class": job.__class__.__name__}
         if initialization_info:
             details["initialization_info"] = initialization_info
         self.append(JobEvent(JobEvent.INITIALIZED, details=details))
@@ -113,14 +112,6 @@ class JobHistory(collections.deque, MSONable):
         return os.path.join(
             self.get_events_by_types(JobEvent.END)[-1].details["workdir"]
         )
-
-    @property
-    def prev_dirs(self) -> list[str]:
-        """Get the last run directory."""
-        return [
-            os.path.join(ievent.details["workdir"])
-            for ievent in self.get_events_by_types(JobEvent.START)[:-1]
-        ]
 
     @property
     def prev_outdir(self) -> str:
@@ -195,7 +186,7 @@ class JobHistory(collections.deque, MSONable):
         types
             Single type or list of types.
         """
-        types = types if isinstance(types, list | tuple) else [types]
+        types = types if isinstance(types, (list, tuple)) else [types]
 
         return [e for e in self if e.event_type in types]
 
@@ -203,7 +194,7 @@ class JobHistory(collections.deque, MSONable):
         """Get the total run time based summing the abinit stop event run times."""
         total_run_time = 0
         for te in self.get_events_by_types(JobEvent.ABINIT_STOP):
-            run_time = te.details.get("run_time")
+            run_time = te.details.get("run_time", None)
             if run_time:
                 total_run_time += run_time
 
@@ -233,15 +224,15 @@ class JobEvent(MSONable):
 
     def as_dict(self) -> dict:
         """Create dictionary representation of the job event."""
-        dct = {"event_type": self.event_type}
+        d = {"event_type": self.event_type}
         if self.details:
-            dct["details"] = jsanitize(self.details, strict=True)
-        dct["@module"] = type(self).__module__
-        dct["@class"] = type(self).__name__
-        return dct
+            d["details"] = jsanitize(self.details, strict=True)
+        d["@module"] = type(self).__module__
+        d["@class"] = type(self).__name__
+        return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> Self:
+    def from_dict(cls, d: dict) -> JobEvent:
         """Create instance of the job event from its dictionary representation."""
         dec = MontyDecoder()
         details = dec.process_decoded(d["details"]) if "details" in d else None

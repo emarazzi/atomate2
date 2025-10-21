@@ -3,7 +3,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional, TypeVar, Union
 
 from emmet.core.structure import MoleculeMetadata
 from monty.dev import requires
@@ -11,7 +11,6 @@ from monty.json import jsanitize
 from pydantic import Field
 from pymatgen.core import Molecule
 from pymatgen.core.periodic_table import Element
-from typing_extensions import Self
 
 from atomate2 import __version__
 from atomate2.utils.datetime import datetime_str
@@ -24,6 +23,7 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T", bound="TaskDocument")
 
 
 class TaskDocument(MoleculeMetadata, extra="allow"):  # type: ignore[call-arg]
@@ -67,15 +67,16 @@ class TaskDocument(MoleculeMetadata, extra="allow"):  # type: ignore[call-arg]
     @classmethod
     @requires(cclib, "The cclib TaskDocument requires cclib to be installed.")
     def from_logfile(
-        cls,
+        cls: type[_T],
         dir_name: Union[str, Path],
         logfile_extensions: Union[str, list[str]],
         store_trajectory: bool = False,
         additional_fields: Optional[dict[str, Any]] = None,
         analysis: Optional[Union[str, list[str]]] = None,
         proatom_dir: Optional[Union[Path, str]] = None,
-    ) -> Self:
-        """Create a TaskDocument from a log file.
+    ) -> "TaskDocument":
+        """
+        Create a TaskDocument from a log file.
 
         For a full description of each field, see https://cclib.github.io/data.html.
 

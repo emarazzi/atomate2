@@ -9,9 +9,7 @@ from atomate2.vasp.jobs.lobster import LobsterStaticMaker
 from atomate2.vasp.powerups import update_user_incar_settings
 
 
-def test_lobster_uniform_maker(
-    mock_vasp, mock_lobster, clean_dir, memory_jobstore, si_structure: Structure
-):
+def test_lobster_uniform_maker(mock_vasp, mock_lobster, clean_dir, memory_jobstore):
     # mapping from job name to directory containing test files
     ref_paths = {
         "relax 1": "Si_lobster_uniform/relax_1",
@@ -34,8 +32,7 @@ def test_lobster_uniform_maker(
                 "ISPIN",
                 "LCHARG",
             ],
-            # TODO restore POSCAR input checking e.g. when next updating test files
-            "check_inputs": ["potcar", "kpoints", "incar"],
+            "check_inputs": ["poscar", "potcar", "kpoints", "incar"],
         },
         "non-scf uniform": {
             "incar_settings": [
@@ -47,8 +44,7 @@ def test_lobster_uniform_maker(
                 "ISPIN",
                 "ICHARG",
             ],
-            # TODO restore POSCAR input checking e.g. when next updating test files
-            "check_inputs": ["potcar", "kpoints", "incar"],
+            "check_inputs": ["poscar", "potcar", "kpoints", "incar"],
         },
     }
 
@@ -65,11 +61,15 @@ def test_lobster_uniform_maker(
     mock_vasp(ref_paths, fake_run_vasp_kwargs)
     mock_lobster(ref_paths_lobster, fake_run_lobster_kwargs)
 
+    si_structure = Structure(
+        lattice=[[0, 2.73, 2.73], [2.73, 0, 2.73], [2.73, 2.73, 0]],
+        species=["Si", "Si"],
+        coords=[[0, 0, 0], [0.25, 0.25, 0.25]],
+    )
     job = VaspLobsterMaker(
         lobster_maker=LobsterMaker(
             task_document_kwargs={
-                "calc_quality_kwargs": {"potcar_symbols": ["Si"], "n_bins": 10},
-                "add_coxxcar_to_task_document": True,
+                "calc_quality_kwargs": {"potcar_symbols": ["Si"], "n_bins": 10}
             },
             user_lobsterin_settings={
                 "COHPstartEnergy": -5.0,
@@ -100,15 +100,13 @@ def test_lobster_uniform_maker(
         .dict()
         .items()
     ):
-        if key in ("lso_dos", "band_overlaps"):
+        if key == "lso_dos" or key == "band_overlaps":
             assert value is None
         else:
             assert value is not None
 
 
-def test_lobstermaker(
-    mock_vasp, mock_lobster, clean_dir, memory_jobstore, si_structure: Structure
-):
+def test_lobstermaker(mock_vasp, mock_lobster, clean_dir, memory_jobstore):
     # mapping from job name to directory containing test files
     ref_paths = {
         "relax 1": "Si_lobster/relax_1",
@@ -122,8 +120,7 @@ def test_lobstermaker(
         "relax 2": {"incar_settings": ["NSW", "ISMEAR"]},
         "static_run": {
             "incar_settings": ["NSW", "LWAVE", "ISMEAR", "ISYM", "NBANDS", "ISPIN"],
-            # TODO restore POSCAR input checking e.g. when next updating test files
-            "check_inputs": ["potcar", "kpoints", "incar"],
+            "check_inputs": ["poscar", "potcar", "kpoints", "incar"],
         },
     }
 
@@ -140,12 +137,16 @@ def test_lobstermaker(
     mock_vasp(ref_paths, fake_run_vasp_kwargs)
     mock_lobster(ref_paths_lobster, fake_run_lobster_kwargs)
 
+    si_structure = Structure(
+        lattice=[[0, 2.73, 2.73], [2.73, 0, 2.73], [2.73, 2.73, 0]],
+        species=["Si", "Si"],
+        coords=[[0, 0, 0], [0.25, 0.25, 0.25]],
+    )
     job = VaspLobsterMaker(
         lobster_static_maker=LobsterStaticMaker(),
         lobster_maker=LobsterMaker(
             task_document_kwargs={
-                "calc_quality_kwargs": {"potcar_symbols": ["Si"], "n_bins": 10},
-                "add_coxxcar_to_task_document": True,
+                "calc_quality_kwargs": {"potcar_symbols": ["Si"], "n_bins": 10}
             },
             user_lobsterin_settings={
                 "COHPstartEnergy": -5.0,
@@ -176,15 +177,13 @@ def test_lobstermaker(
         .dict()
         .items()
     ):
-        if key in ("lso_dos", "band_overlaps"):
+        if key == "lso_dos" or key == "band_overlaps":
             assert value is None
         else:
             assert value is not None
 
 
-def test_lobstermaker_delete(
-    mock_vasp, mock_lobster, clean_dir, memory_jobstore, si_structure: Structure
-):
+def test_lobstermaker_delete(mock_vasp, mock_lobster, clean_dir, memory_jobstore):
     # mapping from job name to directory containing test files
     ref_paths = {
         "relax 1": "Si_lobster/relax_1",
@@ -198,8 +197,7 @@ def test_lobstermaker_delete(
         "relax 2": {"incar_settings": ["NSW", "ISMEAR"]},
         "static_run": {
             "incar_settings": ["NSW", "LWAVE", "ISMEAR", "ISYM", "NBANDS", "ISPIN"],
-            # TODO restore POSCAR input checking e.g. when next updating test files
-            "check_inputs": ["potcar", "kpoints", "incar"],
+            "check_inputs": ["poscar", "potcar", "kpoints", "incar"],
         },
     }
 
@@ -217,11 +215,16 @@ def test_lobstermaker_delete(
     mock_vasp(ref_paths, fake_run_vasp_kwargs)
     mock_lobster(ref_paths_lobster, fake_run_lobster_kwargs)
 
+    si_structure = Structure(
+        lattice=[[0, 2.73, 2.73], [2.73, 0, 2.73], [2.73, 2.73, 0]],
+        species=["Si", "Si"],
+        coords=[[0, 0, 0], [0.25, 0.25, 0.25]],
+    )
     job = VaspLobsterMaker(
         lobster_static_maker=LobsterStaticMaker(),
         lobster_maker=LobsterMaker(
             task_document_kwargs={
-                "calc_quality_kwargs": {"potcar_symbols": ["Si"], "n_bins": 10},
+                "calc_quality_kwargs": {"potcar_symbols": ["Si"], "n_bins": 10}
             },
             user_lobsterin_settings={
                 "COHPstartEnergy": -5.0,
@@ -305,7 +308,6 @@ def test_mp_vasp_lobstermaker(
                 "calc_quality_kwargs": {"potcar_symbols": ["Fe_pv"], "n_bins": 10},
                 "save_computational_data_jsons": False,
                 "save_cba_jsons": False,
-                "add_coxxcar_to_task_document": False,
             },
             user_lobsterin_settings={
                 "COHPstartEnergy": -5.0,
@@ -317,7 +319,10 @@ def test_mp_vasp_lobstermaker(
 
     # run the flow or job and ensure that it finished running successfully
     responses = run_locally(
-        job, create_folders=True, ensure_success=True, store=memory_jobstore
+        job,
+        create_folders=True,
+        ensure_success=True,
+        store=memory_jobstore,
     )
 
     task_doc = (

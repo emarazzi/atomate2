@@ -1,8 +1,8 @@
 import pytest
 from pymatgen.core import Lattice, Species, Structure
-from pymatgen.io.vasp.sets import MPScanRelaxSet
 
 from atomate2.vasp.sets.core import StaticSetGenerator
+from atomate2.vasp.sets.mp import MPMetaGGARelaxSetGenerator
 
 
 @pytest.fixture(scope="module")
@@ -52,7 +52,7 @@ def test_user_incar_settings():
 
     # check to see if user incar settings (even when set to nonsensical values, as done
     # below) are always preserved.
-    user_settings = {
+    uis = {
         "ALGO": "VeryFast",
         "EDIFF": 1e-30,
         "EDIFFG": -1e-10,
@@ -61,7 +61,7 @@ def test_user_incar_settings():
         "GGA": "PE",
         "IBRION": 1,
         "ISIF": 1,
-        "ISPIN": -10,  # wrong value, should be 1 or 2
+        "ISPIN": False,  # wrong type, should be integer (only 1 or 2)
         "LASPH": False,
         "ISMEAR": -2,
         "LCHARG": 50,  # wrong type, should be bool.
@@ -80,16 +80,16 @@ def test_user_incar_settings():
         "LDAUTYPE": 2,
     }
 
-    static_set_generator = StaticSetGenerator(user_incar_settings=user_settings)
-    incar = static_set_generator.get_input_set(structure, potcar_spec=True)["INCAR"]
+    static_set_generator = StaticSetGenerator(user_incar_settings=uis)
+    incar = static_set_generator.get_input_set(structure, potcar_spec=True).incar
 
-    for key, val in user_settings.items():
+    for key in uis:
         if isinstance(incar[key], str):
-            assert incar[key].lower() == val.lower()
-        elif isinstance(val, dict):
-            assert incar[key] == [val[str(site.specie)] for site in structure]
+            assert incar[key].lower() == uis[key].lower()
+        elif isinstance(uis[key], dict):
+            assert incar[key] == [uis[key][str(site.specie)] for site in structure]
         else:
-            assert incar[key] == val
+            assert incar[key] == uis[key]
 
 
 @pytest.mark.parametrize(
@@ -120,7 +120,7 @@ def test_incar_magmoms_precedence(structure, user_incar_settings, request) -> No
     structure = request.getfixturevalue(structure)
 
     input_gen = StaticSetGenerator(user_incar_settings=user_incar_settings)
-    incar = input_gen.get_input_set(structure, potcar_spec=True)["INCAR"]
+    incar = input_gen.get_input_set(structure, potcar_spec=True).incar
     incar_magmom = incar["MAGMOM"]
 
     has_struct_magmom = structure.site_properties.get("magmom")
@@ -145,7 +145,7 @@ def test_incar_magmoms_precedence(structure, user_incar_settings, request) -> No
 def test_set_u_params(structure, request) -> None:
     structure = request.getfixturevalue(structure)
     input_gen = StaticSetGenerator()
-    incar = input_gen.get_input_set(structure, potcar_spec=True)["INCAR"]
+    incar = input_gen.get_input_set(structure, potcar_spec=True).incar
 
     has_nonzero_u = (
         any(
@@ -172,30 +172,28 @@ def test_set_u_params(structure, request) -> None:
 
 
 @pytest.mark.parametrize(
-    "bandgap, bandgap_tol, expected_params",
+    "bandgap, expected_params",
     [
-        (0, 1.0e-4, {"KSPACING": 0.22, "ISMEAR": 2, "SIGMA": 0.2}),
-        (0.1, 1.0e-4, {"KSPACING": 0.26969561, "ISMEAR": -5, "SIGMA": 0.05}),
-        (0.1, 0.1, {"KSPACING": 0.22, "ISMEAR": 2, "SIGMA": 0.2}),
-        (0.1, 0.2, {"KSPACING": 0.22, "ISMEAR": 2, "SIGMA": 0.2}),
-        (1, 1.0e-4, {"KSPACING": 0.30235235, "ISMEAR": -5, "SIGMA": 0.05}),
-        (2, 1.0e-4, {"KSPACING": 0.34935513, "ISMEAR": -5, "SIGMA": 0.05}),
-        (5, 1.0e-4, {"KSPACING": 0.44, "ISMEAR": -5, "SIGMA": 0.05}),
-        (10, 1.0e-4, {"KSPACING": 0.44, "ISMEAR": -5, "SIGMA": 0.05}),
+        (0, {"KSPACING": 0.22, "ISMEAR": 2, "SIGMA": 0.2}),
+        (0.1, {"KSPACING": 0.26969561, "ISMEAR": -5, "SIGMA": 0.05}),
+        (1, {"KSPACING": 0.30235235, "ISMEAR": -5, "SIGMA": 0.05}),
+        (2, {"KSPACING": 0.34935513, "ISMEAR": -5, "SIGMA": 0.05}),
+        (5, {"KSPACING": 0.44, "ISMEAR": -5, "SIGMA": 0.05}),
+        (10, {"KSPACING": 0.44, "ISMEAR": -5, "SIGMA": 0.05}),
     ],
 )
-def test_set_kspacing_bandgap_tol_and_auto_ismear(
-    struct_no_magmoms, bandgap, bandgap_tol, expected_params, monkeypatch
+def test_set_kspacing_and_auto_ismear(
+    struct_no_magmoms, bandgap, expected_params, monkeypatch
 ):
-    static_set = MPScanRelaxSet(
-        auto_ismear=True,
-        auto_kspacing=True,
-        structure=struct_no_magmoms,
-        bandgap=bandgap,
-        bandgap_tol=bandgap_tol,
-    )
+    static_set = MPMetaGGARelaxSetGenerator(auto_ismear=True, auto_kspacing=True)
 
-    incar = static_set.incar
+    incar = static_set._get_incar(
+        structure=struct_no_magmoms,
+        kpoints=None,
+        previous_incar=None,
+        incar_updates={},
+        bandgap=bandgap,
+    )
 
     actual = {key: incar[key] for key in expected_params}
     assert actual == pytest.approx(expected_params)

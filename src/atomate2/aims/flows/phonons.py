@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from atomate2 import SETTINGS
 from atomate2.aims.jobs.core import RelaxMaker, StaticMaker
 from atomate2.aims.jobs.phonons import (
     PhononDisplacementMaker,
@@ -14,8 +13,6 @@ from atomate2.aims.jobs.phonons import (
 from atomate2.common.flows.phonons import BasePhononMaker
 
 if TYPE_CHECKING:
-    from typing import Literal
-
     from atomate2.aims.jobs.base import BaseAimsMaker
 
 
@@ -77,8 +74,8 @@ class PhononMaker(BasePhononMaker):
           High-throughput electronic band structure calculations:
           Challenges and tools. Computational Materials Science,
           49(2), 299-312. doi:10.1016/j.commatsci.2010.05.010.
-          We will, however, use seekpath and primitive structures
-          as determined by phonopy to compute the phonon band structure
+          We will however use seekpath and primitive structures
+          as determined by from phonopy to compute the phonon band structure
     bulk_relax_maker : .BaseAimsMaker or None
         A maker to perform a tight relaxation on the bulk.
         Set to ``None`` to skip the
@@ -106,7 +103,7 @@ class PhononMaker(BasePhononMaker):
         it relies on phonopy to handle the relationship
         to the primitive cell and not pymatgen
     code: str
-        determines the DFT or forcefield code.
+        determines the dft or forcefield code.
     store_force_constants: bool
         if True, force constants will be stored
     socket: bool
@@ -115,12 +112,12 @@ class PhononMaker(BasePhononMaker):
 
     name: str = "phonon"
     sym_reduce: bool = True
-    symprec: float = SETTINGS.PHONON_SYMPREC
+    symprec: float = 1e-4
     displacement: float = 0.01
     min_length: float | None = 20.0
     prefer_90_degrees: bool = True
     get_supercell_size_kwargs: dict = field(default_factory=dict)
-    use_symmetrized_structure: Literal["primitive", "conventional"] | None = None
+    use_symmetrized_structure: str | None = None
     create_thermal_displacements: bool = True
     generate_frequencies_eigenvectors_kwargs: dict = field(default_factory=dict)
     kpath_scheme: str = "seekpath"

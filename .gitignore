@@ -5,8 +5,6 @@ docs/_build/*
 docs/_build/*/*
 docs/_build/*/*/*
 docs_build/*
-docs/tutorials/*
-docs/tutorials/*/*
 
 # C extensions
 *.so
@@ -66,12 +64,5 @@ docs/reference/atomate2.*
 
 .DS_Store
 
-# vim extensions
-*.swp
-*.swo
-
 # see https://github.com/materialsproject/atomate2/issues/345
 *.doctrees*
-
-.ipynb_checkpoints
-.aider*

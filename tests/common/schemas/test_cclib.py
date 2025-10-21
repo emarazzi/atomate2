@@ -14,8 +14,7 @@ except ImportError:
     cclib = None
 
 
-# @pytest.mark.skipif(cclib is None, reason="requires cclib to be installed")
-@pytest.mark.skip(reason="cclib is not working in CI")
+@pytest.mark.skipif(cclib is None, reason="requires cclib to be installed")
 def test_cclib_taskdoc(test_dir):
     p = test_dir / "schemas"
 

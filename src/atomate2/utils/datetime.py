@@ -1,8 +1,8 @@
-"""Helper functions for datetime objects."""  # noqa: A005
+"""Helper functions for datetime objects."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 
 def datetime_str() -> str:
@@ -14,4 +14,4 @@ def datetime_str() -> str:
     str
         The current time.
     """
-    return str(datetime.now(tz=timezone.utc))
+    return str(datetime.utcnow())

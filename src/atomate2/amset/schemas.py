@@ -145,7 +145,8 @@ class AmsetTaskDocument(StructureMetadata):
         additional_fields: dict[str, Any] = None,
         include_mesh: bool = False,
     ) -> "AmsetTaskDocument":
-        """Create a task document from a directory containing VASP files.
+        """
+        Create a task document from a directory containing VASP files.
 
         Parameters
         ----------
@@ -188,8 +189,8 @@ class AmsetTaskDocument(StructureMetadata):
             }
             if include_mesh:
                 # remove duplicated data
-                for key in ("doping", "temperatures", "fermi_levels", "structure"):
-                    mesh.pop(key)
+                for k in ("doping", "temperatures", "fermi_levels", "structure"):
+                    mesh.pop(k)
 
                 mesh_kwargs["mesh"] = cast_dict_list(mesh)
 

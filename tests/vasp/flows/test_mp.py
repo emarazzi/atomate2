@@ -11,6 +11,7 @@ from atomate2.vasp.flows.mp import (
     MPMetaGGADoubleRelaxStaticMaker,
 )
 from atomate2.vasp.jobs.mp import MPMetaGGARelaxMaker, MPPreRelaxMaker
+from atomate2.vasp.sets.mp import MPMetaGGARelaxSetGenerator
 
 
 @pytest.mark.parametrize("name", ["test", None])
@@ -51,12 +52,18 @@ def test_mp_meta_gga_double_relax_static(mock_vasp, clean_dir, vasp_test_dir):
         "MP meta-GGA relax 2": "Si_mp_meta_gga_relax/r2scan_relax",
         "MP meta-GGA static": "Si_mp_meta_gga_relax/r2scan_final_static",
     }
-    si_struct = Structure.from_file(f"{vasp_test_dir}/{pre_relax_dir}/inputs/POSCAR.gz")
+    si_struct = Structure.from_file(f"{vasp_test_dir}/{pre_relax_dir}/inputs/POSCAR")
 
     mock_vasp(ref_paths)
 
     # generate flow
-    flow = MPMetaGGADoubleRelaxStaticMaker().make(si_struct)
+    flow = MPMetaGGADoubleRelaxStaticMaker(
+        relax_maker2=MPMetaGGARelaxMaker(
+            # TODO write better test for bandgap_tol since it isn't actually used by
+            # mock_vasp. this just tests it can be passed without error
+            input_set_generator=MPMetaGGARelaxSetGenerator(bandgap_tol=0.1)
+        )
+    ).make(si_struct)
 
     # ensure flow runs successfully
     responses = run_locally(flow, create_folders=True, ensure_success=True)
@@ -75,7 +82,7 @@ def test_mp_gga_double_relax_static(mock_vasp, clean_dir, vasp_test_dir):
         "MP GGA relax 2": "Si_mp_gga_relax/GGA_Relax_2",
         "MP GGA static": "Si_mp_gga_relax/GGA_Static",
     }
-    si_struct = Structure.from_file(f"{vasp_test_dir}/{pre_relax_dir}/inputs/POSCAR.gz")
+    si_struct = Structure.from_file(f"{vasp_test_dir}/{pre_relax_dir}/inputs/POSCAR")
 
     mock_vasp(ref_paths)
 
@@ -98,7 +105,7 @@ def test_mp_gga_double_relax(mock_vasp, clean_dir, vasp_test_dir):
         "MP GGA relax 1": pre_relax_dir,
         "MP GGA relax 2": "Si_mp_gga_relax/GGA_Relax_2",
     }
-    si_struct = Structure.from_file(f"{vasp_test_dir}/{pre_relax_dir}/inputs/POSCAR.gz")
+    si_struct = Structure.from_file(f"{vasp_test_dir}/{pre_relax_dir}/inputs/POSCAR")
 
     mock_vasp(ref_paths)
 

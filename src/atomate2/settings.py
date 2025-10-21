@@ -30,9 +30,6 @@ class Atomate2Settings(BaseSettings):
     )
 
     # general settings
-    PHONON_SYMPREC: float = Field(
-        1e-3, description="Symmetry precision for spglib symmetry finding."
-    )
     SYMPREC: float = Field(
         0.1, description="Symmetry precision for spglib symmetry finding."
     )
@@ -198,7 +195,6 @@ class Atomate2Settings(BaseSettings):
     ABINIT_MPIRUN_CMD: Optional[str] = Field(None, description="Mpirun command.")
     ABINIT_CMD: str = Field("abinit", description="Abinit command.")
     ABINIT_MRGDDB_CMD: str = Field("mrgddb", description="Mrgddb command.")
-    ABINIT_MRGDV_CMD: str = Field("mrgdv", description="Mrgdv command.")
     ABINIT_ANADDB_CMD: str = Field("anaddb", description="Anaddb command.")
     ABINIT_COPY_DEPS: bool = Field(
         default=False,
@@ -215,19 +211,13 @@ class Atomate2Settings(BaseSettings):
     ABINIT_MAX_RESTARTS: int = Field(
         5, description="Maximum number of restarts of a job."
     )
-    ABINIT_FILES_TO_DEL: list = Field(
-        ["*WFK*", "*1WF*", "*EVK*", "*EIG*", "*DEN*", "*OUT*", "*POT*", "*EBANDS*"],
-        description="Extension of the files deleted by \
-        'abinit.files.del_gzip_files'. \
-        An empty list should be provided to avoid removing any files.",
-    )
 
     model_config = SettingsConfigDict(env_prefix=_ENV_PREFIX)
 
     # QChem specific settings
 
     QCHEM_CMD: str = Field(
-        "qchem", description="Command to run standard version of qchem."
+        "qchem_std", description="Command to run standard version of qchem."
     )
 
     QCHEM_CUSTODIAN_MAX_ERRORS: int = Field(
@@ -253,7 +243,8 @@ class Atomate2Settings(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def load_default_settings(cls, values: dict[str, Any]) -> dict[str, Any]:
-        """Load settings from file or environment variables.
+        """
+        Load settings from file or environment variables.
 
         Loads settings from a root file if available and uses that as defaults in
         place of built-in defaults.
@@ -286,4 +277,4 @@ class Atomate2Settings(BaseSettings):
                 f"{env_var_name} at {config_file_path} does not exist", stacklevel=2
             )
 
-        return new_values | values
+        return {**new_values, **values}

@@ -8,7 +8,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 from abipy.abio.inputs import AbinitInput, MultiDataset
@@ -37,160 +37,14 @@ from atomate2.abinit.utils.common import (
     InitializationError,
     get_final_structure,
 )
-from atomate2.utils.path import strip_hostname
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Iterable, Sequence
 
     from pymatgen.core.structure import Structure
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class AbinitMixinInputGenerator(InputGenerator):
-    """
-    A class to generate input sets for Abinit and related utilities.
-
-    Parameters
-    ----------
-    calc_type
-        A short description of the calculation type
-    prev_outputs_deps
-        Defines the files that needs to be linked from previous calculations and
-        are required for the execution of the current calculation.
-        The format is a tuple where each element is a list of  "|" separated
-        runlevels (as defined in the AbinitInput object) followed by a colon and
-        a list of "|" list of extensions of files that needs to be linked.
-        The runlevel defines the type of calculations from which the file can
-        be linked. An example is (f"{NSCF}:WFK",).
-    """
-
-    calc_type: str
-    prev_outputs_deps: str | tuple | None
-
-    @staticmethod
-    def check_format_prev_dirs(
-        prev_dirs: str | tuple | list | Path | None,
-    ) -> list[str] | None:
-        """Check and format the prev_dirs (restart or dependency)."""
-        if prev_dirs is None:
-            return None
-        if isinstance(prev_dirs, str | Path):
-            return [str(prev_dirs)]
-        return [str(prev_dir) for prev_dir in prev_dirs]
-
-    def resolve_deps(
-        self, prev_dirs: list[str], deps: tuple, check_runlevel: bool = True
-    ) -> tuple[dict, list]:
-        """Resolve dependencies.
-
-        This method assumes that prev_dirs is in the correct format, i.e.
-        a list of directories as str or Path.
-        """
-        input_files = []
-        deps_irdvars = {}
-        for prev_dir in prev_dirs:
-            if check_runlevel:
-                abinit_input = load_abinit_input(prev_dir)
-            for dep in deps:
-                runlevel = set(dep.split(":")[0].split("|"))
-                exts = list(dep.split(":")[1].split("|"))
-                if not check_runlevel or runlevel.intersection(abinit_input.runlevel):
-                    irdvars, inp_files = self.resolve_dep_exts(
-                        prev_dir=prev_dir, exts=exts
-                    )
-                    input_files.extend(inp_files)
-                    deps_irdvars.update(irdvars)
-        return deps_irdvars, input_files
-
-    @staticmethod
-    def _get_in_file_name(out_filepath: str) -> str:
-        in_file = os.path.basename(out_filepath)
-        in_file = in_file.replace(OUTDATAFILE_PREFIX, INDATAFILE_PREFIX, 1)
-
-        return os.path.basename(in_file)  # .replace("WFQ", "WFK", 1)
-
-    @staticmethod
-    def resolve_dep_exts(prev_dir: str, exts: list[str]) -> tuple:
-        """Return irdvars and corresponding file for a given dependency.
-
-        This method assumes that prev_dir is in the correct format,
-        i.e. a directory as a str or Path.
-        """
-        prev_dir = strip_hostname(prev_dir)  # TODO: to FileCLient?
-        prev_outdir = Directory(os.path.join(prev_dir, OUTDIR_NAME))
-        inp_files = []
-
-        # Currently, a single previous job maps to one dependency, unless
-        # "restart_from_deps" or "prev_outputs_deps" are tuples of multiple items.
-        # However, these are currently tuples of ONE item (except for DDE, DTE,
-        # and Phonons), which can have multiple
-        # run_levels and extensions. If a previous job's run_level matches any of the
-        # specified run_levels, the first matching extension in its output files is
-        # used (e.g., WFK, then DEN if WFK is missing).
-        #
-        # Example: ("scf|relax|md:WFK|DEN",) means:
-        #   - If the previous job is scf/relax/md, its outputs are considered.
-        #   - WFK is prioritized; if missing, DEN is used.
-        #
-        # In light of this behavior, the use of break makes sense right now
-        for ext in exts:
-            # TODO: how to check that we have the files we need ?
-            #  Should we raise if don't find at least one file for a given extension ?
-            if ext in ("1WF", "1DEN", "DDK"):
-                # Special treatment for 1WF and 1DEN files
-                if ext in ["1WF", "DDK"]:
-                    files = prev_outdir.find_1wf_files()
-                elif ext == "1DEN":
-                    files = prev_outdir.find_1den_files()
-                else:
-                    raise RuntimeError("Should not occur.")
-                if files is not None:
-                    inp_files = [
-                        (f.path, AbinitMixinInputGenerator._get_in_file_name(f.path))
-                        for f in files
-                    ]
-                    irdvars = irdvars_for_ext(ext)
-                    break
-            elif ext == "DEN":
-                # Special treatment for DEN files
-                # In case of relaxations or MD, there may be several TIM?_DEN files
-                # First look for the standard out_DEN file.
-                # If not found, look for the last TIM?_DEN file.
-                out_den = prev_outdir.path_in(f"{OUTDATAFILE_PREFIX}_DEN")
-                if os.path.exists(out_den):
-                    irdvars = irdvars_for_ext("DEN")
-                    inp_files.append(
-                        (out_den, AbinitMixinInputGenerator._get_in_file_name(out_den))
-                    )
-                    break
-                last_timden = prev_outdir.find_last_timden_file()
-                if last_timden is not None:
-                    if last_timden.path.endswith(".nc"):
-                        in_file_name = f"{INDATAFILE_PREFIX}_DEN.nc"
-                    else:
-                        in_file_name = f"{INDATAFILE_PREFIX}_DEN"
-                    inp_files.append((last_timden.path, in_file_name))
-                    irdvars = irdvars_for_ext("DEN")
-                    break
-            else:
-                out_file = prev_outdir.has_abiext(ext)
-                irdvars = irdvars_for_ext(ext)
-                if out_file:
-                    inp_files.append(
-                        (
-                            out_file,
-                            AbinitMixinInputGenerator._get_in_file_name(out_file),
-                        )
-                    )
-                    break
-        else:
-            msg = f"Cannot find {' or '.join(exts)} file to restart from."
-            logger.error(msg)
-            raise InitializationError(msg)
-        return irdvars, inp_files
 
 
 class AbinitInputSet(InputSet):
@@ -244,7 +98,7 @@ class AbinitInputSet(InputSet):
             zip_inputs=zip_inputs,
         )
         del self.inputs["abinit_input.json"]
-        indir, _outdir, _tmpdir = set_workdir(workdir=directory)
+        indir, _outdir, _tmpdir = self.set_workdir(workdir=directory)
 
         if self.input_files:
             out_to_in(
@@ -266,21 +120,37 @@ class AbinitInputSet(InputSet):
             if ext is None:
                 return False
             irdvars = irdvars_for_ext(ext)
-            # Need to consider irdddk to read 1WF files
-            if ext == "1WF":
-                irdvars["irdddk"] = 1
             for irdvar, irdval in irdvars.items():
-                if irdvar in self.abinit_input and self.abinit_input[irdvar] == irdval:
-                    # at least one irdvar has the right irdval in abinit_input
-                    break
-            else:
-                return False
+                if irdvar not in self.abinit_input:
+                    return False
+                if self.abinit_input[irdvar] != irdval:
+                    return False
         return True
 
     @property
     def abinit_input(self) -> AbinitInput:
         """Get the AbinitInput object."""
         return self[INPUT_FILE_NAME]
+
+    @staticmethod
+    def set_workdir(workdir: Path | str) -> tuple[Directory, Directory, Directory]:
+        """Set up the working directory.
+
+        This also sets up and creates standard input, output and temporary directories.
+        """
+        workdir = os.path.abspath(workdir)
+
+        # Directories with input|output|temporary data.
+        indir = Directory(os.path.join(workdir, INDIR_NAME))
+        outdir = Directory(os.path.join(workdir, OUTDIR_NAME))
+        tmpdir = Directory(os.path.join(workdir, TMPDIR_NAME))
+
+        # Create dirs for input, output and tmp data.
+        indir.makedirs()
+        outdir.makedirs()
+        tmpdir.makedirs()
+
+        return indir, outdir, tmpdir
 
     def set_vars(self, *args, **kwargs) -> dict:
         """Set the values of abinit variables.
@@ -369,7 +239,7 @@ def as_pseudo_table(pseudos: str | Sequence[Pseudo]) -> PseudoTable:
 
 
 @dataclass
-class AbinitInputGenerator(AbinitMixinInputGenerator):
+class AbinitInputGenerator(InputGenerator):
     """
     A class to generate Abinit input sets.
 
@@ -426,21 +296,21 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
         Tolerance for symmetry finding, used for line mode band structure k-points.
     """
 
-    factory: Callable | None = None
+    factory: Callable
     calc_type: str = "abinit_calculation"
     pseudos: str | list[str] | PseudoTable | None = "ONCVPSP-PBE-SR-PDv0.4:standard"
     factory_kwargs: dict = field(default_factory=dict)
     user_abinit_settings: dict = field(default_factory=dict)
     user_kpoints_settings: dict | KSampling = field(default_factory=dict)
-    restart_from_deps: tuple | None = None
-    prev_outputs_deps: tuple | None = None
+    restart_from_deps: str | tuple | None = None
+    prev_outputs_deps: str | tuple | None = None
     factory_prev_inputs_kwargs: dict | None = None
     force_gamma: bool = True
     symprec: float = SETTINGS.SYMPREC
 
     def get_input_set(
         self,
-        structure: Structure | None = None,
+        structure: Structure = None,
         restart_from: str | tuple | list | Path | None = None,
         prev_outputs: str | tuple | list | Path | None = None,
     ) -> AbinitInputSet:
@@ -456,10 +326,11 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
         structure : Structure
             Pymatgen Structure object.
         restart_from : str or Path or list or tuple
-            Directory or list/tuple of 1 directory to restart from.
+            Directory (as a str or Path) or list/tuple of 1 directory (as a str
+            or Path) to restart from.
         prev_outputs : str or Path or list or tuple
-            Directory or list/tuple of directories needed as dependencies for the
-                AbinitInputSet generated.
+            Directory (as a str or Path) or list/tuple of directories (as a str
+            or Path) needed as dependencies for the AbinitInputSet generated.
         """
         # Get the pseudos as a PseudoTable
         pseudos = as_pseudo_table(self.pseudos) if self.pseudos else None
@@ -485,7 +356,7 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
         else:
             if prev_outputs is not None and not self.prev_outputs_deps:
                 raise RuntimeError(
-                    f"Previous outputs not allowed for {type(self).__name__}."
+                    f"Previous outputs not allowed for {self.__class__.__name__}."
                 )
             abinit_input = self.get_abinit_input(
                 structure=structure,
@@ -517,6 +388,41 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
             link_files=True,
         )
 
+    def check_format_prev_dirs(
+        self, prev_dirs: str | tuple | list | Path | None
+    ) -> list[str] | None:
+        """Check and format the prev_dirs (restart or dependency)."""
+        if prev_dirs is None:
+            return None
+        if isinstance(prev_dirs, (str, Path)):
+            return [str(prev_dirs)]
+        return [str(prev_dir) for prev_dir in prev_dirs]
+
+    def resolve_deps(
+        self, prev_dirs: list[str], deps: str | tuple, check_runlevel: bool = True
+    ) -> tuple[dict, list]:
+        """Resolve dependencies.
+
+        This method assumes that prev_dirs is in the correct format, i.e.
+        a list of directories as str or Path.
+        """
+        input_files = []
+        deps_irdvars = {}
+        for prev_dir in prev_dirs:
+            if check_runlevel:
+                abinit_input = load_abinit_input(prev_dir)
+            for dep in deps:
+                runlevel = set(dep.split(":")[0].split("|"))
+                exts = list(dep.split(":")[1].split("|"))
+                if not check_runlevel or runlevel.intersection(abinit_input.runlevel):
+                    irdvars, inp_files = self.resolve_dep_exts(
+                        prev_dir=prev_dir, exts=exts
+                    )
+                    input_files.extend(inp_files)
+                    deps_irdvars.update(irdvars)
+
+        return deps_irdvars, input_files
+
     def resolve_prev_inputs(
         self, prev_dirs: list[str], prev_inputs_kwargs: dict
     ) -> dict[str, AbinitInput]:
@@ -530,12 +436,11 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
         a list of directories as str or Path.
         """
         abinit_inputs = {}
-        for prev_d in prev_dirs:
-            prev_dir = strip_hostname(prev_d)  # TODO: to FileCLient?
+        for prev_dir in prev_dirs:
             abinit_input = load_abinit_input(prev_dir)
-            for var_name, run_levels in prev_inputs_kwargs.items():
+            for var_name, runlevels in prev_inputs_kwargs.items():
                 if abinit_input.runlevel and abinit_input.runlevel.intersection(
-                    run_levels
+                    runlevels
                 ):
                     if var_name in abinit_inputs:
                         msg = (
@@ -556,6 +461,76 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
 
         return abinit_inputs
 
+    @staticmethod
+    def _get_in_file_name(out_filepath: str) -> str:
+        in_file = os.path.basename(out_filepath)
+        in_file = in_file.replace(OUTDATAFILE_PREFIX, INDATAFILE_PREFIX, 1)
+
+        return os.path.basename(in_file).replace("WFQ", "WFK", 1)
+
+    @staticmethod
+    def resolve_dep_exts(prev_dir: str, exts: list[str]) -> tuple:
+        """Return irdvars and corresponding file for a given dependency.
+
+        This method assumes that prev_dir is in the correct format,
+        i.e. a directory as a str or Path.
+        """
+        prev_outdir = Directory(os.path.join(prev_dir, OUTDIR_NAME))
+        inp_files = []
+
+        for ext in exts:
+            # TODO: how to check that we have the files we need ?
+            #  Should we raise if don't find at least one file for a given extension ?
+            if ext in ("1WF", "1DEN"):
+                # Special treatment for 1WF and 1DEN files
+                if ext == "1WF":
+                    files = prev_outdir.find_1wf_files()
+                elif ext == "1DEN":
+                    files = prev_outdir.find_1den_files()
+                else:
+                    raise RuntimeError("Should not occur.")
+                if files is not None:
+                    inp_files = [
+                        (f.path, AbinitInputGenerator._get_in_file_name(f.path))
+                        for f in files
+                    ]
+                    irdvars = irdvars_for_ext(ext)
+                    break
+            elif ext == "DEN":
+                # Special treatment for DEN files
+                # In case of relaxations or MD, there may be several TIM?_DEN files
+                # First look for the standard out_DEN file.
+                # If not found, look for the last TIM?_DEN file.
+                out_den = prev_outdir.path_in(f"{OUTDATAFILE_PREFIX}_DEN")
+                if os.path.exists(out_den):
+                    irdvars = irdvars_for_ext("DEN")
+                    inp_files.append(
+                        (out_den, AbinitInputGenerator._get_in_file_name(out_den))
+                    )
+                    break
+                last_timden = prev_outdir.find_last_timden_file()
+                if last_timden is not None:
+                    if last_timden.path.endswith(".nc"):
+                        in_file_name = f"{INDATAFILE_PREFIX}_DEN.nc"
+                    else:
+                        in_file_name = f"{INDATAFILE_PREFIX}_DEN"
+                    inp_files.append((last_timden.path, in_file_name))
+                    irdvars = irdvars_for_ext("DEN")
+                    break
+            else:
+                out_file = prev_outdir.has_abiext(ext)
+                irdvars = irdvars_for_ext(ext)
+                if out_file:
+                    inp_files.append(
+                        (out_file, AbinitInputGenerator._get_in_file_name(out_file))
+                    )
+                    break
+        else:
+            msg = f"Cannot find {' or '.join(exts)} file to restart from."
+            logger.error(msg)
+            raise InitializationError(msg)
+        return irdvars, inp_files
+
     def get_abinit_input(
         self,
         structure: Structure | None = None,
@@ -566,7 +541,8 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
         kpoints_settings: dict | KSampling | None = None,
         input_index: int | None = None,
     ) -> AbinitInput:
-        """Generate the AbinitInput for the input set.
+        """
+        Generate the AbinitInput for the input set.
 
         Uses the defined factory function and additional parameters from user
         and subclasses.
@@ -598,7 +574,7 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
         if self.factory_prev_inputs_kwargs:
             if not prev_outputs:
                 raise RuntimeError(
-                    f"No previous_outputs. Required for {type(self).__name__}."
+                    f"No previous_outputs. Required for {self.__class__.__name__}."
                 )
 
             # TODO consider cases where structure might be defined even if
@@ -613,16 +589,18 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
             )
             total_factory_kwargs.update(abinit_inputs)
 
-        elif structure is None:
-            msg = (
-                f"Structure is mandatory for {type(self).__name__} "
-                f"generation since no previous output is used."
-            )
-            raise RuntimeError(msg)
+        else:
+            # TODO check if this should be removed or the check be improved
+            if structure is None:
+                msg = (
+                    f"Structure is mandatory for {self.__class__.__name__} "
+                    f"generation since no previous output is used."
+                )
+                raise RuntimeError(msg)
 
         if not self.prev_outputs_deps and prev_outputs:
             msg = (
-                f"Previous outputs not allowed for {type(self).__name__}. "
+                f"Previous outputs not allowed for {self.__class__.__name__} "
                 "Consider if restart_from argument of get_input_set method "
                 "can fit your needs instead."
             )
@@ -716,16 +694,98 @@ class AbinitInputGenerator(AbinitMixinInputGenerator):
     ) -> KSampling | None:
         """Get the kpoints file."""
         kpoints_updates = {} if kpoints_updates is None else kpoints_updates
-        if self.user_kpoints_settings == {} and not kpoints_updates:
+
+        # use user setting if set otherwise default to base config settings
+        if self.user_kpoints_settings != {}:
+            kconfig = copy.deepcopy(self.user_kpoints_settings)
+        elif kpoints_updates:
+            kconfig = kpoints_updates
+        else:
             return None
 
-        return get_ksampling(
-            structure=structure,
-            kpoints_updates=kpoints_updates,
-            user_kpoints_settings=self.user_kpoints_settings,
-            force_gamma=self.force_gamma,
-            symprec=self.symprec,
+        if isinstance(kconfig, KSampling):
+            return kconfig
+
+        explicit = (
+            kconfig.get("explicit")
+            or len(kconfig.get("added_kpoints", [])) > 0
+            or "zero_weighted_reciprocal_density" in kconfig
+            or "zero_weighted_line_density" in kconfig
         )
+
+        base_kpoints = None
+        if kconfig.get("line_density"):
+            # handle line density generation
+            kpath = HighSymmKpath(structure, **kconfig.get("kpath_kwargs", {}))
+            frac_k_points, _k_points_labels = kpath.get_kpoints(
+                line_density=kconfig["line_density"], coords_are_cartesian=False
+            )
+            base_kpoints = KSampling(
+                mode=KSamplingModes.automatic,
+                num_kpts=len(frac_k_points),
+                kpts=frac_k_points,
+                kpts_weights=[1] * len(frac_k_points),
+                comment="Non SCF run along symmetry lines",
+            )
+        elif kconfig.get("grid_density") or kconfig.get("reciprocal_density"):
+            # handle regular weighted k-point grid generation
+            if kconfig.get("grid_density"):
+                vasp_kpoints = Kpoints.automatic_density(
+                    structure, int(kconfig["grid_density"]), self.force_gamma
+                )
+                base_kpoints = KSampling(
+                    mode=KSamplingModes.monkhorst,
+                    num_kpts=0,
+                    kpts=vasp_kpoints.kpts,
+                    kpt_shifts=vasp_kpoints.kpts_shift,
+                    comment=vasp_kpoints.comment,
+                )
+            elif kconfig.get("reciprocal_density"):
+                vasp_kpoints = Kpoints.automatic_density_by_vol(
+                    structure, kconfig["reciprocal_density"], self.force_gamma
+                )
+                base_kpoints = KSampling(
+                    mode=KSamplingModes.monkhorst,
+                    num_kpts=0,
+                    kpts=vasp_kpoints.kpts,
+                    kpt_shifts=vasp_kpoints.kpts_shift,
+                    comment=vasp_kpoints.comment,
+                )
+            if explicit:
+                sga = SpacegroupAnalyzer(structure, symprec=self.symprec)
+                mesh = sga.get_ir_reciprocal_mesh(base_kpoints.kpts[0])
+                base_kpoints = KSampling(
+                    mode=KSamplingModes.automatic,
+                    num_kpts=len(mesh),
+                    kpts=[i[0] for i in mesh],
+                    kpts_weights=[i[1] for i in mesh],
+                    comment="Uniform grid",
+                )
+            else:
+                # if not explicit that means no other options have been specified
+                # so we can return the k-points as is
+                return base_kpoints
+
+        added_kpoints = None
+        if kconfig.get("added_kpoints"):
+            added_kpoints = KSampling(
+                mode=KSamplingModes.automatic,
+                num_kpts=len(kconfig.get("added_kpoints")),
+                kpts=kconfig.get("added_kpoints"),
+                kpts_weights=[0] * len(kconfig.get("added_kpoints")),
+                comment="Specified k-points only",
+            )
+
+        if base_kpoints and not added_kpoints:
+            return base_kpoints
+        if added_kpoints and not base_kpoints:
+            return added_kpoints
+
+        # do some sanity checking
+        if not (base_kpoints or added_kpoints):
+            raise ValueError("Invalid k-point generation algo.")
+
+        return _combine_kpoints(base_kpoints, added_kpoints)
 
 
 def _combine_kpoints(*kpoints_objects: KSampling) -> KSampling:
@@ -751,124 +811,3 @@ def _combine_kpoints(*kpoints_objects: KSampling) -> KSampling:
         kpts_weights=weights,
         comment="Combined k-points",
     )
-
-
-def get_ksampling(
-    structure: Structure,
-    kpoints_updates: dict[str, Any] | None = None,
-    user_kpoints_settings: dict | KSampling | None = None,
-    force_gamma: bool = True,
-    symprec: float = SETTINGS.SYMPREC,
-) -> KSampling:
-    """Get kpoint file."""
-    # use user setting if set otherwise default to base config settings
-    if user_kpoints_settings != {}:
-        kconfig = copy.deepcopy(user_kpoints_settings)
-    elif kpoints_updates:
-        kconfig = kpoints_updates
-    else:
-        raise ValueError("No kpoint settings defined")
-
-    if isinstance(kconfig, KSampling):
-        return kconfig
-
-    explicit = (
-        kconfig.get("explicit")
-        or len(kconfig.get("added_kpoints", [])) > 0
-        or "zero_weighted_reciprocal_density" in kconfig
-        or "zero_weighted_line_density" in kconfig
-    )
-
-    base_kpoints = None
-    if kconfig.get("line_density"):
-        # handle line density generation
-        kpath = HighSymmKpath(structure, **kconfig.get("kpath_kwargs", {}))
-        frac_k_points, _k_points_labels = kpath.get_kpoints(
-            line_density=kconfig["line_density"], coords_are_cartesian=False
-        )
-        base_kpoints = KSampling(
-            mode=KSamplingModes.automatic,
-            num_kpts=len(frac_k_points),
-            kpts=frac_k_points,
-            kpts_weights=[1] * len(frac_k_points),
-            comment="Non SCF run along symmetry lines",
-        )
-    elif kconfig.get("grid_density") or kconfig.get("reciprocal_density"):
-        # handle regular weighted k-point grid generation
-        if kconfig.get("grid_density"):
-            vasp_kpoints = Kpoints.automatic_density(
-                structure, int(kconfig["grid_density"]), force_gamma
-            )
-            base_kpoints = KSampling(
-                mode=KSamplingModes.monkhorst,
-                num_kpts=0,
-                kpts=vasp_kpoints.kpts,
-                kpt_shifts=vasp_kpoints.kpts_shift,
-                comment=vasp_kpoints.comment,
-            )
-        elif kconfig.get("reciprocal_density"):
-            vasp_kpoints = Kpoints.automatic_density_by_vol(
-                structure, kconfig["reciprocal_density"], force_gamma
-            )
-            base_kpoints = KSampling(
-                mode=KSamplingModes.monkhorst,
-                num_kpts=0,
-                kpts=vasp_kpoints.kpts,
-                kpt_shifts=vasp_kpoints.kpts_shift,
-                comment=vasp_kpoints.comment,
-            )
-        if explicit:
-            sga = SpacegroupAnalyzer(structure, symprec=symprec)
-            mesh = sga.get_ir_reciprocal_mesh(base_kpoints.kpts[0])
-            base_kpoints = KSampling(
-                mode=KSamplingModes.automatic,
-                num_kpts=len(mesh),
-                kpts=[i[0] for i in mesh],
-                kpts_weights=[i[1] for i in mesh],
-                comment="Uniform grid",
-            )
-        else:
-            # if not explicit that means no other options have been specified
-            # so we can return the k-points as is
-            return base_kpoints
-
-    added_kpoints = None
-    if kconfig.get("added_kpoints"):
-        added_kpoints = KSampling(
-            mode=KSamplingModes.automatic,
-            num_kpts=len(kconfig.get("added_kpoints")),
-            kpts=kconfig.get("added_kpoints"),
-            kpts_weights=[0] * len(kconfig.get("added_kpoints")),
-            comment="Specified k-points only",
-        )
-
-    if base_kpoints and not added_kpoints:
-        return base_kpoints
-    if added_kpoints and not base_kpoints:
-        return added_kpoints
-
-    # do some sanity checking
-    if not (base_kpoints or added_kpoints):
-        raise ValueError("Invalid k-point generation algo.")
-
-    return _combine_kpoints(base_kpoints, added_kpoints)
-
-
-def set_workdir(workdir: Path | str) -> tuple[Directory, Directory, Directory]:
-    """Set up the working directory.
-
-    This also sets up and creates standard input, output and temporary directories.
-    """
-    workdir = os.path.abspath(workdir)
-
-    # Directories with input|output|temporary data.
-    indir = Directory(os.path.join(workdir, INDIR_NAME))
-    outdir = Directory(os.path.join(workdir, OUTDIR_NAME))
-    tmpdir = Directory(os.path.join(workdir, TMPDIR_NAME))
-
-    # Create dirs for input, output and tmp data.
-    indir.makedirs()
-    outdir.makedirs()
-    tmpdir.makedirs()
-
-    return indir, outdir, tmpdir

@@ -124,7 +124,8 @@ class ElectronPhononMaker(Maker):
     )
 
     def make(self, structure: Structure, prev_dir: str | Path | None = None) -> Flow:
-        """Create a electron-phonon coupling workflow.
+        """
+        Create a electron-phonon coupling workflow.
 
         Parameters
         ----------
