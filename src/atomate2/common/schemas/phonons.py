@@ -2,21 +2,24 @@
 
 import copy
 import logging
+import warnings
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Union
+from typing import Literal, Self, Union
 
 import numpy as np
 from emmet.core.math import Matrix3D
 from emmet.core.structure import StructureMetadata
 from monty.json import MSONable
 from phonopy import Phonopy
+from phonopy.interface.cif import write_cif_P1
 from phonopy.phonon.band_structure import get_band_qpoints_and_path_connections
 from phonopy.structure.symmetry import symmetrize_borns_and_epsilon
-from phonopy.units import VaspToTHz
+from phonopy.units import Bohr, Hartree, VaspToTHz
 from pydantic import BaseModel, Field
 from pymatgen.core import Structure
 from pymatgen.io.phonopy import (
-    get_ph_bs_symm_line,
+    get_ph_bs_symm_line_from_dict,
     get_ph_dos,
     get_phonopy_structure,
     get_pmg_structure,
@@ -27,7 +30,7 @@ from pymatgen.phonon.dos import PhononDos
 from pymatgen.phonon.plotter import PhononBSPlotter, PhononDosPlotter
 from pymatgen.symmetry.bandstructure import HighSymmKpath
 from pymatgen.symmetry.kpath import KPathSeek
-from typing_extensions import Self
+from ruamel.yaml import YAML
 
 from atomate2.aims.utils.units import omegaToTHz
 
@@ -53,21 +56,239 @@ def get_factor(code: str) -> float:
     ValueError
         If code is not defined
     """
-    if code in ["ase", "forcefields", "vasp"]:
+    if code in ["ase", "forcefields", "vasp", "torchsim"]:
         return VaspToTHz
     if code == "aims":
         return omegaToTHz  # Based on CODATA 2002
     raise ValueError(f"Frequency conversion factor for code ({code}) not defined.")
 
 
+def _set_nac_params(
+    phonon: Phonopy,
+    born: Sequence[Matrix3D] | None,
+    epsilon_static: Matrix3D | None,
+    symprec: float,
+    code: str,
+    is_symmetry: bool = True,
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """
+    Symmetrize the Born charges and the dielectric tensor and set the NAC.
+
+    The non-analytical correction is set unless all Born charges are zero or
+    the code is FHI-aims.
+
+    Parameters
+    ----------
+    phonon: Phonopy
+        Phonopy object whose unit cell the Born charges belong to.
+    born: Sequence[Matrix3D] | None
+        Born effective charges, one per atom of the unit cell.
+    epsilon_static: Matrix3D | None
+        High-frequency dielectric tensor.
+    symprec: float
+        Symmetry precision.
+    code: str
+        Code of the force calculations.
+    is_symmetry: bool
+        Whether to symmetrize the Born charges and the dielectric tensor.
+
+    Returns
+    -------
+    tuple[np.ndarray | None, np.ndarray | None]
+        The symmetrized Born charges and dielectric tensor, or None if either
+        was not given.
+    """
+    if born is None or epsilon_static is None:
+        return None, None
+    if len(born) != len(phonon.unitcell):
+        raise ValueError("Number of Born charges does not agree with number of atoms")
+    borns, epsilon = symmetrize_borns_and_epsilon(
+        ucell=phonon.unitcell,
+        borns=np.array(born),
+        epsilon=np.array(epsilon_static),
+        symprec=symprec,
+        primitive_matrix=phonon.primitive_matrix,
+        supercell_matrix=phonon.supercell_matrix,
+        is_symmetry=is_symmetry,
+    )
+    if code != "aims" and not np.all(np.isclose(borns, 0.0)):
+        phonon.nac_params = {
+            "born": borns,
+            "dielectric": epsilon,
+            "factor": Hartree * Bohr,
+        }
+    return borns, epsilon
+
+
+def _get_thermal_displacement_data(phonon: Phonopy, **kwargs) -> dict | None:
+    """
+    Compute the thermal displacement matrices of the primitive cell.
+
+    phonopy shifts meshes with even numbers by half a step, which breaks the
+    site symmetry of the matrices for face-centred and hexagonal cells. So the
+    mesh numbers are rounded up to odd numbers. An odd mesh contains Gamma. The
+    three acoustic modes at Gamma are left out, because their frequencies are
+    zero up to numerical noise and the term of a mode diverges as its frequency
+    goes to zero. The acoustic modes are the three modes at Gamma whose
+    eigenvectors are closest to the rigid translations of the cell. phonopy's
+    exclude_gamma_acoustic takes the three modes of smallest absolute frequency,
+    which are not the acoustic modes if an optical mode at Gamma is closer to
+    zero. One CIF file is written per temperature.
+
+    Modes with a frequency below freq_min_thermal_displacements are left out.
+    Without imaginary modes, the default of 0 leaves out no mode, since apart
+    from the acoustic modes at Gamma, the mesh then has no modes at zero frequency.
+
+    The matrices are not defined if the mesh has imaginary modes, so by default
+    none are returned then. A material with imaginary modes then gets no
+    Debye-Waller factors either. The two options below give an estimate of U
+    for such a material. imaginary_modes_thermal_displacements="exclude"
+    computes U from the real modes above freq_min_thermal_displacements.
+    "absolute" also counts each imaginary mode as a real mode of the same absolute
+    frequency, above freq_min_thermal_displacements. freq_min_thermal_displacements
+    must then be positive, because the term of a mode diverges as its frequency
+    goes to zero. These matrices are only an estimate.
+
+    Parameters
+    ----------
+    phonon: Phonopy
+        Phonopy object with force constants and, if available, the NAC set.
+    **kwargs:
+        kpoint_density_thermal_displacements (default 30000),
+        tmin_thermal_displacements (default 0), tmax_thermal_displacements
+        (default 1000), tstep_thermal_displacements (default 100),
+        freq_min_thermal_displacements (default 0.0), tol_imaginary_modes
+        (default 1e-5) and imaginary_modes_thermal_displacements (default None,
+        "exclude" or "absolute").
+
+    Returns
+    -------
+    dict or None
+        Fields of ThermalDisplacementData, or None if the mesh has imaginary
+        modes and imaginary_modes_thermal_displacements is None.
+    """
+    warnings.warn(
+        "Thermal displacement matrices now leave out the acoustic modes at Gamma, "
+        "use their own q-point mesh with odd mesh numbers "
+        "(kpoint_density_thermal_displacements, default 30000) and run from 0 to "
+        "1000 K. They can differ from those of earlier atomate2 versions.",
+        stacklevel=2,
+    )
+    kpoint = Kpoints.automatic_density(
+        structure=get_pmg_structure(phonon.primitive),
+        kppa=kwargs.get("kpoint_density_thermal_displacements", 30_000),
+        force_gamma=True,
+    )
+    mesh = [n + 1 - n % 2 for n in kpoint.kpts[0]]
+    phonon.run_mesh(mesh, with_eigenvectors=True, is_mesh_symmetry=False)
+    freq_min = kwargs.get("freq_min_thermal_displacements", 0.0)
+    imaginary_modes = kwargs.get("imaginary_modes_thermal_displacements")
+    if imaginary_modes not in (None, "exclude", "absolute"):
+        raise ValueError(
+            'imaginary_modes_thermal_displacements must be None, "exclude" or '
+            f'"absolute", not {imaginary_modes!r}.'
+        )
+    if freq_min < 0:
+        raise ValueError(
+            "freq_min_thermal_displacements must not be negative. Modes below it "
+            "are left out, and a negative value would let imaginary modes in."
+        )
+    # The acoustic modes at Gamma are the rigid translations of the cell, with
+    # weight sqrt(mass) on each atom. They are the three modes whose eigenvectors
+    # (the columns) overlap most with the translations. Their frequencies on this
+    # mesh are set to zero, so phonopy's exclude_gamma_acoustic, which leaves out
+    # the three modes of smallest absolute frequency, leaves out these modes.
+    gamma = phonon.mesh.gamma_index
+    sqrt_mass = np.sqrt(phonon.primitive.masses)
+    translations = np.kron(sqrt_mass / np.linalg.norm(sqrt_mass), np.eye(3))
+    eigvecs = phonon.mesh.eigenvectors[gamma]
+    acoustic = np.argsort((np.abs(translations @ eigvecs) ** 2).sum(axis=0))[-3:]
+    phonon.mesh.frequencies[gamma, acoustic] = 0.0
+    freqs = phonon.mesh.frequencies.copy()
+    freqs[gamma, acoustic] = np.inf
+    has_imaginary = freqs.min() < -kwargs.get("tol_imaginary_modes", 1e-5)
+    if has_imaginary and imaginary_modes is None:
+        warnings.warn(
+            "The q-point mesh has imaginary modes, so no thermal displacement "
+            "matrices are stored.",
+            stacklevel=2,
+        )
+        return None
+    # With an option, U is computed below. "exclude" sums only the real modes above
+    # freq_min. "absolute" also adds the imaginary modes in a second sum.
+    if has_imaginary:
+        if freq_min <= 0:
+            raise ValueError(
+                "freq_min_thermal_displacements must be positive when the mesh has "
+                "imaginary modes. Where a branch crosses zero, the mesh has modes "
+                "with frequencies near zero, and the term of such a mode diverges. "
+                "freq_min_thermal_displacements leaves these modes out."
+            )
+        warnings.warn(
+            "The q-point mesh has imaginary modes. The thermal displacement "
+            f'matrices are computed with imaginary_modes="{imaginary_modes}".',
+            stacklevel=2,
+        )
+    t_step = kwargs.get("tstep_thermal_displacements", 100)
+    # same temperatures as phonopy's t_min, t_max, t_step, which include t_max
+    temperatures = np.arange(
+        kwargs.get("tmin_thermal_displacements", 0),
+        kwargs.get("tmax_thermal_displacements", 1000) + t_step / 2,
+        t_step,
+    )
+    phonon.run_thermal_displacement_matrices(
+        temperatures=temperatures, freq_min=freq_min, exclude_gamma_acoustic=True
+    )
+    matrices = phonon.thermal_displacement_matrices
+    u = matrices.thermal_displacement_matrices
+    u_cif = matrices.thermal_displacement_matrices_cif
+    if has_imaginary and imaginary_modes == "absolute":
+        # An imaginary mode has no harmonic U, because the energy falls along it.
+        # Without U, the material gets no Debye-Waller factors. Leaving the mode
+        # out ("exclude") lowers U. "absolute" keeps it as a real mode of the same
+        # absolute frequency, which gives an estimate of U.
+        # phonopy only sums the modes above freq_min, which keeps the modes near
+        # zero frequency out for numerical stability, since their term diverges.
+        # This second run adds the imaginary modes below -freq_min, which phonopy
+        # stores as negative frequencies. Their term equals that of the absolute
+        # frequency, except at T <= 1 K, where phonopy sets the population to zero
+        # and the term changes sign.
+        phonon.run_thermal_displacement_matrices(
+            temperatures=temperatures,
+            freq_min=-np.inf,
+            freq_max=-freq_min,  # the imaginary modes, below -freq_min
+            exclude_gamma_acoustic=True,
+        )
+        imaginary = phonon.thermal_displacement_matrices
+        sign = np.where(temperatures > 1, 1, -1)[:, None, None, None]
+        u = u + sign * imaginary.thermal_displacement_matrices
+        u_cif = u_cif + sign * imaginary.thermal_displacement_matrices_cif
+    for idx, temp in enumerate(temperatures):
+        write_cif_P1(
+            phonon.primitive, U_cif=u_cif[idx], filename=f"tdispmat_{temp:g}K.cif"
+        )
+    return {
+        "temperatures_thermal_displacements": temperatures.tolist(),
+        "thermal_displacement_matrix_cif": u_cif.tolist(),
+        "thermal_displacement_matrix": u.tolist(),
+        "freq_min_thermal_displacements": freq_min,
+        "imaginary_modes": imaginary_modes if has_imaginary else None,
+        "primitive_structure": get_pmg_structure(phonon.primitive),
+    }
+
+
 class PhononComputationalSettings(BaseModel):
     """Collection to store computational settings for the phonon computation."""
 
     # could be optional and implemented at a later stage?
-    npoints_band: int = Field("number of points for band structure computation")
-    kpath_scheme: str = Field("indicates the kpath scheme")
-    kpoint_density_dos: int = Field(
-        "number of points for computation of free energies and densities of states",
+    npoints_band: int | None = Field(
+        None, description="number of points for band structure computation"
+    )
+    kpath_scheme: str | None = Field(None, description="indicates the kpath scheme")
+    kpoint_density_dos: int | None = Field(
+        None,
+        description="number of points for computation of free energies and "
+        "densities of states",
     )
 
 
@@ -75,35 +296,48 @@ class ThermalDisplacementData(BaseModel):
     """Collection to store information on the thermal displacement matrices."""
 
     freq_min_thermal_displacements: float = Field(
-        "cutoff frequency in THz to avoid numerical issues in the "
-        "computation of the thermal displacement parameters"
+        0.0,
+        description="cutoff frequency in THz. Modes with a frequency below it are "
+        "left out of the thermal displacement matrices, with "
+        'imaginary_modes="absolute" also the imaginary modes of an absolute '
+        "frequency below it.",
     )
-    thermal_displacement_matrix_cif: Optional[list[list[Matrix3D]]] = Field(
+    thermal_displacement_matrix_cif: list[list[Matrix3D]] | None = Field(
         None, description="field including thermal displacement matrices in CIF format"
     )
-    thermal_displacement_matrix: Optional[list[list[Matrix3D]]] = Field(
+    thermal_displacement_matrix: list[list[Matrix3D]] | None = Field(
         None,
         description="field including thermal displacement matrices in Cartesian "
         "coordinate system",
     )
-    temperatures_thermal_displacements: Optional[list[int]] = Field(
+    temperatures_thermal_displacements: list[int] | None = Field(
         None,
         description="temperatures at which the thermal displacement matrices"
         "have been computed",
+    )
+    imaginary_modes: Literal["exclude", "absolute"] | None = Field(
+        None,
+        description="how the imaginary modes of the q-point mesh entered the "
+        "thermal displacement matrices, either left out (exclude) or as real modes "
+        "of the same absolute frequency (absolute). None if the mesh had none or if "
+        "this was not recorded.",
+    )
+    primitive_structure: Structure | None = Field(
+        None,
+        description="primitive cell of phonopy, whose sites the thermal displacement "
+        "matrices refer to, in the same order",
     )
 
 
 class PhononUUIDs(BaseModel):
     """Collection to save all uuids connected to the phonon run."""
 
-    optimization_run_uuid: Optional[str] = Field(
-        None, description="optimization run uuid"
-    )
-    displacements_uuids: Optional[list[str]] = Field(
+    optimization_run_uuid: str | None = Field(None, description="optimization run uuid")
+    displacements_uuids: list[str] | None = Field(
         None, description="The uuids of the displacement jobs."
     )
-    static_run_uuid: Optional[str] = Field(None, description="static run uuid")
-    born_run_uuid: Optional[str] = Field(None, description="born run uuid")
+    static_run_uuid: str | None = Field(None, description="static run uuid")
+    born_run_uuid: str | None = Field(None, description="born run uuid")
 
 
 class ForceConstants(MSONable):
@@ -116,19 +350,19 @@ class ForceConstants(MSONable):
 class PhononJobDirs(BaseModel):
     """Collection to save all job directories relevant for the phonon run."""
 
-    displacements_job_dirs: Optional[list[Optional[str]]] = Field(
+    displacements_job_dirs: list[str | None] | None = Field(
         None, description="The directories where the displacement jobs were run."
     )
-    static_run_job_dir: Optional[Optional[str]] = Field(
+    static_run_job_dir: str | None = Field(
         None, description="Directory where static run was performed."
     )
-    born_run_job_dir: Optional[str] = Field(
+    born_run_job_dir: str | None = Field(
         None, description="Directory where born run was performed."
     )
-    optimization_run_job_dir: Optional[str] = Field(
+    optimization_run_job_dir: str | None = Field(
         None, description="Directory where optimization run was performed."
     )
-    taskdoc_run_job_dir: Optional[str] = Field(
+    taskdoc_run_job_dir: str | None = Field(
         None, description="Directory where task doc was generated."
     )
 
@@ -136,106 +370,141 @@ class PhononJobDirs(BaseModel):
 class PhononBSDOSDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg]
     """Collection of all data produced by the phonon workflow."""
 
-    structure: Optional[Structure] = Field(
+    structure: Structure | None = Field(
         None, description="Structure of Materials Project."
     )
 
-    phonon_bandstructure: Optional[PhononBandStructureSymmLine] = Field(
+    phonon_bandstructure: PhononBandStructureSymmLine | None = Field(
         None,
         description="Phonon band structure object.",
     )
 
-    phonon_dos: Optional[PhononDos] = Field(
+    phonon_dos: PhononDos | None = Field(
         None,
         description="Phonon density of states object.",
     )
 
-    free_energies: Optional[list[float]] = Field(
+    free_energies: list[float] | None = Field(
         None,
         description="vibrational part of the free energies in J/mol per "
         "formula unit for temperatures in temperature_list",
     )
 
-    heat_capacities: Optional[list[float]] = Field(
+    heat_capacities: list[float] | None = Field(
         None,
         description="heat capacities in J/K/mol per "
         "formula unit for temperatures in temperature_list",
     )
 
-    internal_energies: Optional[list[float]] = Field(
+    internal_energies: list[float] | None = Field(
         None,
         description="internal energies in J/mol per "
         "formula unit for temperatures in temperature_list",
     )
-    entropies: Optional[list[float]] = Field(
+    entropies: list[float] | None = Field(
         None,
         description="entropies in J/(K*mol) per formula unit"
         "for temperatures in temperature_list ",
     )
 
-    temperatures: Optional[list[int]] = Field(
+    temperatures: list[int] | None = Field(
         None,
         description="temperatures at which the vibrational"
         " part of the free energies"
         " and other properties have been computed",
     )
 
-    total_dft_energy: Optional[float] = Field(
+    total_dft_energy: float | None = Field(
         None, description="total DFT energy per formula unit in eV"
     )
 
-    volume_per_formula_unit: Optional[float] = Field(
+    volume_per_formula_unit: float | None = Field(
         None, description="volume per formula unit in Angstrom**3"
     )
 
-    formula_units: Optional[int] = Field(None, description="Formula units per cell")
+    formula_units: int | None = Field(None, description="Formula units per cell")
 
-    has_imaginary_modes: Optional[bool] = Field(
+    has_imaginary_modes: bool | None = Field(
         None, description="if true, structure has imaginary modes"
     )
 
     # needed, e.g. to compute Grueneisen parameter etc
-    force_constants: Optional[ForceConstants] = Field(
+    force_constants: ForceConstants | None = Field(
         None, description="Force constants between every pair of atoms in the structure"
     )
 
-    born: Optional[list[Matrix3D]] = Field(
+    born: list[Matrix3D] | None = Field(
         None,
         description="Born charges as computed from phonopy. Only for symmetrically "
         "different atoms",
     )
 
-    epsilon_static: Optional[Matrix3D] = Field(
+    epsilon_static: Matrix3D | None = Field(
         None, description="The high-frequency dielectric constant"
     )
 
-    supercell_matrix: Optional[Matrix3D] = Field(
+    supercell_matrix: Matrix3D | None = Field(
         None, description="matrix describing the supercell"
     )
-    primitive_matrix: Optional[Matrix3D] = Field(
+    primitive_matrix: Matrix3D | None = Field(
         None, description="matrix describing relationship to primitive cell"
     )
 
-    code: Optional[str] = Field(
+    code: str | None = Field(
         None, description="String describing the code for the computation"
     )
 
-    phonopy_settings: Optional[PhononComputationalSettings] = Field(
+    phonopy_settings: PhononComputationalSettings | None = Field(
         None, description="Field including settings for Phonopy"
     )
 
-    thermal_displacement_data: Optional[ThermalDisplacementData] = Field(
+    thermal_displacement_data: ThermalDisplacementData | None = Field(
         None,
         description="Includes all data of the computation of the thermal displacements",
     )
 
-    jobdirs: Optional[PhononJobDirs] = Field(
+    jobdirs: PhononJobDirs | None = Field(
         None, description="Field including all relevant job directories"
     )
 
-    uuids: Optional[PhononUUIDs] = Field(
+    uuids: PhononUUIDs | None = Field(
         None, description="Field including all relevant uuids"
     )
+
+    def _get_thermo_value(
+        self,
+        temperatures: Sequence[float] | None,
+        values: Sequence[float] | None,
+        temp: float,
+    ) -> float:
+        """Interpolate a thermodynamic quantity at a given temperature."""
+        if temperatures is None or values is None:
+            raise AttributeError(
+                "Thermodynamic data not available in this PhononBSDOSDoc."
+            )
+
+        return float(np.interp(temp, np.array(temperatures), np.array(values)))
+
+    def heat_capacity(self, temp: float) -> float:
+        """Return heat capacity at a given temperature."""
+        return self._get_thermo_value(self.temperatures, self.heat_capacities, temp)
+
+    def entropy(self, temp: float) -> float:
+        """Return entropy at a given temperature."""
+        return self._get_thermo_value(self.temperatures, self.entropies, temp)
+
+    def free_energy(self, temp: float) -> float:
+        """Return Helmholtz free energy at a given temperature."""
+        return self._get_thermo_value(self.temperatures, self.free_energies, temp)
+
+    def internal_energy(self, temp: float) -> float:
+        """Return internal energy at a given temperature."""
+        return self._get_thermo_value(self.temperatures, self.internal_energies, temp)
+
+    @property
+    def post_process_settings(self) -> PhononComputationalSettings | None:
+        """Backward-compatible alias for legacy callers/tests."""
+        return self.phonopy_settings
 
     @classmethod
     def from_forces_born(
@@ -297,7 +566,11 @@ class PhononBSDOSDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg
             primitive_matrix = "auto"
 
         # TARP: THIS IS BAD! Including for discussions sake
-        if cell.magnetic_moments is not None and primitive_matrix == "auto":
+        if (
+            cell.magnetic_moments is not None
+            and isinstance(primitive_matrix, str)
+            and primitive_matrix == "auto"
+        ):
             if np.any(cell.magnetic_moments != 0.0):
                 raise ValueError(
                     "For materials with magnetic moments, "
@@ -309,41 +582,26 @@ class PhononBSDOSDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg
             cell,
             supercell_matrix,
             primitive_matrix=primitive_matrix,
-            factor=factor,
             symprec=symprec,
             is_symmetry=sym_reduce,
         )
+        phonon.unit_conversion_factor = factor
         phonon.generate_displacements(distance=displacement)
         set_of_forces = [np.array(forces) for forces in displacement_data["forces"]]
 
-        if born is not None and epsilon_static is not None:
-            if len(structure) == len(born):
-                borns, epsilon = symmetrize_borns_and_epsilon(
-                    ucell=phonon.unitcell,
-                    borns=np.array(born),
-                    epsilon=np.array(epsilon_static),
-                    symprec=symprec,
-                    primitive_matrix=phonon.primitive_matrix,
-                    supercell_matrix=phonon.supercell_matrix,
-                    is_symmetry=kwargs.get("symmetrize_born", True),
-                )
-            else:
-                raise ValueError(
-                    "Number of Born charges does not agree with number of atoms"
-                )
-            if code == "vasp" and not np.all(np.isclose(borns, 0.0)):
-                phonon.nac_params = {
-                    "born": borns,
-                    "dielectric": epsilon,
-                    "factor": 14.399652,
-                }
-            # Other codes could be added here
-        else:
-            borns = None
-            epsilon = None
+        borns, epsilon = _set_nac_params(
+            phonon,
+            born,
+            epsilon_static,
+            symprec,
+            code,
+            is_symmetry=kwargs.get("symmetrize_born", True),
+        )
 
-        # Produces all force constants
+        # Produces all force constants and imposes the translational, permutation
+        # and space group symmetry with the symfc projector, as phonopy.load does
         phonon.produce_force_constants(forces=set_of_forces)
+        phonon.symmetrize_force_constants(use_symfc_projector=True)
 
         filename_phonopy_yaml = kwargs.get("filename_phonopy_yaml", "phonopy.yaml")
         create_force_constants_file = kwargs.get("create_force_constants_file", False)
@@ -395,18 +653,26 @@ class PhononBSDOSDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg
             is_band_connection=kwargs.get("band_structure_eigenvectors", False),
         )
         phonon.write_yaml_band_structure(filename=filename_band_yaml)
-        bs_symm_line = get_ph_bs_symm_line(
-            filename_band_yaml, labels_dict=kpath_dict, has_nac=born is not None
+        bs_symm_line = get_ph_bs_symm_line_from_dict(
+            YAML(typ="safe").load(Path(filename_band_yaml).read_text()),
+            has_nac=born is not None,
+            labels_dict=kpath_dict,
         )
+        # Backward compatibility for older atomate2 tests/callers
+        if not hasattr(bs_symm_line, "frequencies") and hasattr(bs_symm_line, "bands"):
+            bs_symm_line.frequencies = np.array(bs_symm_line.bands)
+
         new_plotter = PhononBSPlotter(bs=bs_symm_line)
         new_plotter.save_plot(
             filename=kwargs.get("filename_bs", "phonon_band_structure.pdf"),
             units=kwargs.get("units", "THz"),
         )
 
-        # will determine if imaginary modes are present in the structure
+        # will determine if imaginary modes are present in the structure.
+        # The default of 1e-3 THz is above the numerical noise of the acoustic
+        # modes at Gamma. 1e-5 THz flagged this noise as imaginary modes.
         imaginary_modes = bs_symm_line.has_imaginary_freq(
-            tol=kwargs.get("tol_imaginary_modes", 1e-5)
+            tol=kwargs.get("tol_imaginary_modes", 1e-3)
         )
 
         # gets data for visualization on website - yaml is also enough
@@ -449,72 +715,39 @@ class PhononBSDOSDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg
         new_plotter_dos.add_dos(label="total", dos=dos)
         new_plotter_dos.save_plot(
             filename=kwargs.get("filename_dos", "phonon_dos.pdf"),
+            img_format=kwargs.get("filetype_dos", "pdf"),
             units=kwargs.get("units", "THz"),
         )
 
         # compute vibrational part of free energies per formula unit
-        temperature_range = np.arange(
-            kwargs.get("tmin", 0), kwargs.get("tmax", 500), kwargs.get("tstep", 10)
+        # the grid includes tmax and defaults to 0-1000 K, as in phonopy
+        tmin = kwargs.get("tmin", 0)
+        tmax = kwargs.get("tmax", 1000)
+        tstep = kwargs.get("tstep", 10)
+        temperature_range = np.arange(tmin, tmax + tstep / 2, tstep)
+
+        # phonopy gives the values per primitive cell, the free energy in kJ/mol.
+        # The three acoustic modes at Gamma should have zero frequency, so they are
+        # left out.
+        phonon.run_thermal_properties(
+            temperatures=temperature_range, exclude_gamma_acoustic=True
         )
+        _, free_energy, entropy, heat_capacity = (
+            phonon.thermal_properties.thermal_properties
+        )
+        formula_units_primitive = (
+            len(phonon.primitive) / structure.composition.reduced_composition.num_atoms
+        )
+        free_energies = 1000 * free_energy / formula_units_primitive
+        entropies = entropy / formula_units_primitive
+        internal_energies = free_energies + temperature_range * entropies
+        heat_capacities = heat_capacity / formula_units_primitive
 
-        free_energies = [
-            dos.helmholtz_free_energy(
-                temp=temp, structure=get_pmg_structure(phonon.primitive)
-            )
-            for temp in temperature_range
-        ]
-
-        entropies = [
-            dos.entropy(temp=temp, structure=get_pmg_structure(phonon.primitive))
-            for temp in temperature_range
-        ]
-
-        internal_energies = [
-            dos.internal_energy(
-                temp=temp, structure=get_pmg_structure(phonon.primitive)
-            )
-            for temp in temperature_range
-        ]
-
-        heat_capacities = [
-            dos.cv(temp=temp, structure=get_pmg_structure(phonon.primitive))
-            for temp in temperature_range
-        ]
-
-        # will compute thermal displacement matrices
-        # for the primitive cell (phonon.primitive!)
-        # only this is available in phonopy
-        if kwargs.get("create_thermal_displacements"):
-            phonon.run_mesh(
-                kpoint.kpts[0], with_eigenvectors=True, is_mesh_symmetry=False
-            )
-            freq_min_thermal_displacements = kwargs.get(
-                "freq_min_thermal_displacements", 0.0
-            )
-            phonon.run_thermal_displacement_matrices(
-                t_min=kwargs.get("tmin_thermal_displacements", 0),
-                t_max=kwargs.get("tmax_thermal_displacements", 500),
-                t_step=kwargs.get("tstep_thermal_displacements", 100),
-                freq_min=freq_min_thermal_displacements,
-            )
-
-            temperature_range_thermal_displacements = np.arange(
-                kwargs.get("tmin_thermal_displacements", 0),
-                kwargs.get("tmax_thermal_displacements", 500),
-                kwargs.get("tstep_thermal_displacements", 100),
-            )
-            for idx, temp in enumerate(temperature_range_thermal_displacements):
-                phonon.thermal_displacement_matrices.write_cif(
-                    phonon.primitive, idx, filename=f"tdispmat_{temp}K.cif"
-                )
-            _disp_mat = phonon._thermal_displacement_matrices  # noqa: SLF001
-            tdisp_mat = _disp_mat.thermal_displacement_matrices.tolist()
-
-            tdisp_mat_cif = _disp_mat.thermal_displacement_matrices_cif.tolist()
-
-        else:
-            tdisp_mat = None
-            tdisp_mat_cif = None
+        thermal_displacement_data = (
+            _get_thermal_displacement_data(phonon, **kwargs)
+            if kwargs.get("create_thermal_displacements")
+            else None
+        )
 
         formula_units = (
             structure.composition.num_atoms
@@ -549,14 +782,7 @@ class PhononBSDOSDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg
             supercell_matrix=phonon.supercell_matrix.tolist(),
             primitive_matrix=phonon.primitive_matrix.tolist(),
             code=code,
-            thermal_displacement_data={
-                "temperatures_thermal_displacements": temperature_range_thermal_displacements.tolist(),  # noqa: E501
-                "thermal_displacement_matrix_cif": tdisp_mat_cif,
-                "thermal_displacement_matrix": tdisp_mat,
-                "freq_min_thermal_displacements": freq_min_thermal_displacements,
-            }
-            if kwargs.get("create_thermal_displacements")
-            else None,
+            thermal_displacement_data=thermal_displacement_data,
             jobdirs={
                 "displacements_job_dirs": displacement_data["dirs"],
                 "static_run_job_dir": kwargs["static_run_job_dir"],

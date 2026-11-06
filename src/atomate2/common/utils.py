@@ -209,3 +209,28 @@ def _recursive_get_dir_names(jobs: list, dir_names: list) -> None:
             _recursive_get_dir_names(sub_jobs, dir_names)
         else:
             dir_names.append(a_job.output.dir_name)
+
+
+def _recursive_to_list(voigt_data: Any) -> Any:
+    """Recursively convert tensor-like data to nested lists.
+
+    Useful for converting numpy or torch arrays to lists.
+    """
+    if isinstance(voigt_data, list):
+        return [_recursive_to_list(item) for item in voigt_data]
+    if hasattr(voigt_data, "tolist"):
+        return voigt_data.tolist()
+    return voigt_data
+
+
+def check_class_name(obj: object, class_names: str | list[str]) -> bool:
+    """Check if an object's class name matches an allowed list.
+
+    This allows us to check if an object is an instance of a class
+    (eg a Maker) without importing the class itself. Useful to replace
+    `isinstance(obj, Maker)` in common workflows or jobs where we should
+    avoid introducing other dependencies.
+    """
+    if isinstance(class_names, str):
+        class_names = [class_names]
+    return type(obj).__name__ in class_names
