@@ -573,9 +573,7 @@ def mock_mrgddb(mocker, abinit_test_dir, abinit_integration_tests):
 
     if not abinit_integration_tests:
         # Mock mrgddb run by copying reference output files
-        def mock_run_mrgddb(
-            wall_time: float | None = None, start_time: float | None = None
-        ) -> None:
+        def mock_run_mrgddb(start_time: float | None = None) -> None:
             from jobflow import CURRENT_JOB
 
             name = CURRENT_JOB.job.name
@@ -621,13 +619,13 @@ def check_mrgddb_inputs(
 
         with open("mrgddb.in") as file:
             str_in = file.readlines()
-        str_in.pop(1)  # Remove second line (DDB output path)
+        str_in.pop(1)  # Remove second line (description, contains the date)
 
         with zopen(
             ref_path / "inputs" / "mrgddb.in.gz", "rt", encoding="utf-8"
         ) as file:
             ref_str = file.readlines()
-        ref_str.pop(1)  # Remove second line (DDB output path)
+        ref_str.pop(1)  # Remove second line (description, contains the date)
 
         assert str_in[1] == ref_str[1], "'mrgddb.in' is different from reference."
 
@@ -677,9 +675,7 @@ def mock_mrgdvdb(mocker, abinit_test_dir, abinit_integration_tests):
 
     if not abinit_integration_tests:
         # Mock mrgdv run by copying reference output files
-        def mock_run_mrgdv(
-            wall_time: float | None = None, start_time: float | None = None
-        ) -> None:
+        def mock_run_mrgdv(start_time: float | None = None) -> None:
             from jobflow import CURRENT_JOB
 
             name = CURRENT_JOB.job.name
@@ -723,13 +719,12 @@ def check_mrgdv_inputs(
     if "mrgdv.in" in check_inputs:
         from monty.io import zopen
 
+        # mrgdv.in: output file, number of files, files (no description line)
         with open("mrgdv.in") as file:
             str_in = file.readlines()
-        str_in.pop(1)  # Remove second line (POT output path)
 
         with zopen(ref_path / "inputs" / "mrgdv.in.gz", "rt", encoding="utf-8") as file:
             ref_str = file.readlines()
-        ref_str.pop(1)  # Remove second line (POT output path)
 
         assert str_in[1] == ref_str[1], "'mrgdv.in' is different from reference."
 

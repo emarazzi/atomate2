@@ -19,17 +19,21 @@ from abipy.abio.factories import (
 from abipy.abio.input_tags import MOLECULAR_DYNAMICS, NSCF, RELAX, SCF
 from pymatgen.analysis.structure_matcher import StructureMatcher
 
+from atomate2.abinit.files import fname2ext
 from atomate2.abinit.sets.base import AbinitInputGenerator
 from atomate2.abinit.utils.common import get_final_structure
 from atomate2.utils.path import strip_hostname
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from abipy.abio.inputs import AbinitInput
     from pymatgen.core import Structure
     from pymatgen.io.abinit import PseudoTable
     from pymatgen.io.abinit.abiobjects import KSampling
+
+    from atomate2.abinit.sets.base import AbinitInputSet
 
 
 logger = logging.getLogger(__name__)
@@ -382,17 +386,89 @@ class NscfWfqSetGenerator(NonSCFSetGenerator):
         Type of calculation. Default is "wfq".
     factory : Callable
         Factory function for generating the input. Default is wfq_nscf_from_gsinput.
+    restart_from_deps : tuple
+        Dependencies for restarting calculations. Default is () since the
+        restart is handled in :meth:`get_input_set` (see Notes).
     prev_outputs_deps : tuple
         Dependencies from previous calculations.
         Default is (f"{SCF}:DEN", f"{SCF}:WFK").
     nbands_factor : float
         Factor to multiply the number of bands. Default is 1.0.
+
+    Notes
+    -----
+    A ground-state run with ``nqpt=1`` writes its wavefunctions to ``out_WFQ``
+    but only reads starting wavefunctions through ``irdwfk`` (``irdwfq`` is
+    ignored outside DFPT). A restart therefore links the ``out_WFQ`` of the
+    previous run as ``in_WFK``, in place of the SCF ``out_WFK`` linked from
+    ``prev_outputs``.
     """
 
     calc_type: str = "wfq"
     factory: Callable = wfq_nscf_from_gsinput
+    restart_from_deps: tuple = ()
     prev_outputs_deps: tuple = (f"{SCF}:DEN", f"{SCF}:WFK")
     nbands_factor: float = 1.0
+
+    def get_input_set(
+        self,
+        structure: Structure | None = None,
+        restart_from: str | tuple | list | Path | None = None,
+        prev_outputs: str | tuple | list | Path | None = None,
+    ) -> AbinitInputSet:
+        """
+        Generate an AbinitInputSet, restarting from a previous WFQ if needed.
+
+        Parameters
+        ----------
+        structure : Structure or None
+            Pymatgen Structure object. Default is None.
+        restart_from : str or tuple or list or Path or None
+            Directory of a previous (unconverged) WFQ run to restart from.
+            Its ``out_WFQ`` is used as starting wavefunctions. Default is None.
+        prev_outputs : str or tuple or list or Path or None
+            Directories of the previous SCF calculation. Default is None.
+
+        Returns
+        -------
+        AbinitInputSet
+            The ABINIT input set.
+
+        Raises
+        ------
+        ValueError
+            If restarting without ``prev_outputs``: the SCF density (and the
+            ``irdwfk``/``irdden`` variables) come from the SCF calculation.
+        InitializationError
+            If restarting and no WFQ file is found in ``restart_from``.
+        """
+        if (
+            restart_from is not None
+            and self.check_format_prev_dirs(prev_outputs) is None
+        ):
+            raise ValueError(
+                "Restarting a WFQ calculation requires prev_outputs (the SCF "
+                "calculation providing the density) in addition to restart_from."
+            )
+        input_set = super().get_input_set(
+            structure=structure, restart_from=restart_from, prev_outputs=prev_outputs
+        )
+        restart_from = self.check_format_prev_dirs(restart_from)
+        if restart_from is None:
+            return input_set
+
+        # Raises InitializationError if the previous run has no WFQ file
+        _, wfq_files = self.resolve_dep_exts(prev_dir=restart_from[0], exts=["WFQ"])
+        wfq_path, in_wfq = wfq_files[0]
+        in_wfk = in_wfq.replace("_WFQ", "_WFK")  # keeps a possible .nc extension
+        # Replace the SCF WFK linked from prev_outputs. irdwfk is already set
+        # by the SCF WFK dependency in prev_outputs_deps.
+        input_set.input_files = [
+            (src, dest)
+            for src, dest in input_set.input_files or []
+            if fname2ext(dest) != "WFK"
+        ] + [(wfq_path, in_wfk)]
+        return input_set
 
 
 @dataclass

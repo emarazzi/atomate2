@@ -336,6 +336,8 @@ class Calculation(BaseModel):
             )
 
         output_doc = None
+        abinit_out = None
+        abinit_gsr = None
         if abinit_out_file.exists():
             abinit_out = AbinitOutputFile.from_file(abinit_out_file)
             output_doc = CalculationOutput.from_abinit_out(abinit_out)
@@ -377,7 +379,13 @@ class Calculation(BaseModel):
             msg = f"{cls} exception while parsing event_report:\n{exc}"
             logger.critical(msg)
 
-        abinit_version = abinit_out.version if abinit_out is not None else None
+        # Prefer the version from run.abo (always written, also for DFPT runs
+        # that do not produce a GSR file), fall back to the GSR file otherwise.
+        abinit_version = None
+        if abinit_out is not None:
+            abinit_version = abinit_out.version
+        elif abinit_gsr is not None:
+            abinit_version = abinit_gsr.abinit_version
 
         instance = cls(
             dir_name=str(dir_name),

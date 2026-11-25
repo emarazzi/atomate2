@@ -91,9 +91,6 @@ class AnaddbMaker(Maker):
         The job name.
     input_set_generator : AnaddbInputGenerator
         Generator for ANADDB input files. Defaults to AnaddbInputGenerator.
-    factory_kwargs : dict
-        Additional keyword arguments passed to the input set generator
-        factory methods.
     task_document_kwargs : dict
         Additional keyword arguments passed to AnaddbTaskDoc.from_directory().
     """
@@ -102,7 +99,6 @@ class AnaddbMaker(Maker):
     input_set_generator: AnaddbInputGenerator = field(
         default_factory=AnaddbInputGenerator
     )
-    factory_kwargs: dict = field(default_factory=dict)
     task_document_kwargs: dict = field(default_factory=dict)
 
     @property
@@ -186,9 +182,6 @@ class AnaddbDfptDteMaker(AnaddbMaker):
     input_set_generator : AnaddbInputGenerator
         Generator for ANADDB input files. Defaults to
         AnaddbDfptDteInputGenerator, which is configured for DTE analysis.
-    factory_kwargs : dict
-        Additional keyword arguments passed to the input set generator
-        factory methods.
     task_document_kwargs : dict
         Additional keyword arguments passed to AnaddbTaskDoc.from_directory().
     """
@@ -217,9 +210,6 @@ class AnaddbPhBandsDOSMaker(AnaddbMaker):
         Generator for ANADDB input files. Defaults to
         AnaddbPhbandsDOSInputGenerator, which is configured for phonon
         band structure and DOS analysis.
-    factory_kwargs : dict
-        Additional keyword arguments passed to the input set generator
-        factory methods.
     task_document_kwargs : dict
         Additional keyword arguments passed to AnaddbTaskDoc.from_directory().
     """

@@ -114,3 +114,26 @@ def test_relax_run_silicon_scaled1p2_restart(mock_abinit, abinit_test_dir, clean
     # output2 = responses[job.uuid][2].output
     # assert isinstance(output2, AbinitTaskDocument)
     # assert output2.run_number == 2
+
+
+def test_static_run_with_additional_fields(mock_abinit, abinit_test_dir, clean_dir):
+    from jobflow import run_locally
+    from monty.serialization import loadfn
+    from pymatgen.core.structure import Structure
+
+    from atomate2.abinit.powerups import update_taskdoc_kwargs
+
+    test_dir = abinit_test_dir / "jobs" / "core" / "StaticMaker" / "silicon_standard"
+    structure = Structure.from_file(test_dir / "initial_structure.json.gz")
+    maker: Maker = loadfn(test_dir / "maker.json.gz")["maker"]
+    maker = update_taskdoc_kwargs(maker, {"additional_fields": {"tags": ["my_tag"]}})
+    mock_abinit(loadfn(test_dir / "ref_paths.json.gz"))
+
+    job = maker.make(structure)
+    responses = run_locally(
+        job, create_folders=True, ensure_success=True, raise_immediately=True
+    )
+
+    output = responses[job.uuid][1].output
+    assert output.tags == ["my_tag"]
+    assert output.history_dirs is not None

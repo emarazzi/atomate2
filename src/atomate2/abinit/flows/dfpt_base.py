@@ -124,6 +124,7 @@ class DfptFlowMaker(Maker):
 
         This method checks for incompatible parameter combinations and
         enforces dependencies between different makers. It ensures:
+        - At least one of DDE, phonon or DTE calculations is requested
         - DDK calculations are present when DDE is requested
         - DDE calculations are present when DTE is requested
         - DTE is not used with DDE symmetries
@@ -135,6 +136,11 @@ class DfptFlowMaker(Maker):
         ValueError
             If invalid parameter combinations are detected.
         """
+        if not (self.dde_maker or self.phonon_maker or self.dte_maker):
+            raise ValueError(
+                "At least one of dde_maker, phonon_maker or dte_maker must be "
+                "provided: there are no perturbations to compute otherwise."
+            )
         if self.dde_maker and not self.ddk_maker:
             raise ValueError(
                 "DDK calculations are required to continue \

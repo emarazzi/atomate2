@@ -70,15 +70,12 @@ class ResponseMaker(BaseAbinitMaker):
         Additional keyword arguments passed to TaskDoc.from_directory().
     input_set_generator : AbinitInputGenerator
         Generator for ABINIT input files. Must be provided by subclasses.
-    stop_jobflow_on_failure : bool
-        If True, stop the entire jobflow when this job fails. Default is True.
     """
 
     calc_type: str = "RF"
     name: str = "RF calculation"
     task_document_kwargs: dict = field(default_factory=dict)
     input_set_generator: AbinitInputGenerator
-    stop_jobflow_on_failure: bool = True
 
     CRITICAL_EVENTS: ClassVar[Sequence[AbinitCriticalWarning]] = (
         ScfConvergenceWarning,
@@ -339,10 +336,15 @@ def generate_perts(
     ph_jobs: list = []
     dte_jobs: list = []
 
-    if not isinstance(scf_output, list | tuple):
-        scf_output = [scf_output]
-    if not isinstance(ddk_output, list | tuple):
-        ddk_output = [ddk_output]
+    # Normalise to lists so that they can be concatenated below. ddk_output
+    # stays None if not given, so that the check for DDE below can trigger.
+    scf_output = (
+        list(scf_output) if isinstance(scf_output, list | tuple) else [scf_output]
+    )
+    if ddk_output is not None:
+        ddk_output = (
+            list(ddk_output) if isinstance(ddk_output, list | tuple) else [ddk_output]
+        )
 
     gsinput = gsinput.deepcopy()
     gsinput.pop_vars(["autoparal"])

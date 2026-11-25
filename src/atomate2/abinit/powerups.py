@@ -317,6 +317,16 @@ def append_clean_flow(
     Flow
         A copy of the input flow/job modified to delete/compress files
         once completed.
+
+    Notes
+    -----
+    Compressed directories can no longer be used as ``prev_outputs`` or
+    ``restart_from`` of a new job: files such as ``abinit_input.json``, the
+    GSR or the DDB are then only available as ``.gz``, and the files in
+    ``SETTINGS.ABINIT_FILES_TO_DEL`` (e.g. DEN and WFK) are deleted. To keep a
+    directory reusable, exclude the needed files, e.g.
+    ``exclude_files_from_zip=["abinit_input.json", "*GSR*", "*DDB*", "*DEN*",
+    "*WFK*"]`` together with ``exclude_files_from_del=["*DEN*", "*WFK*"]``.
     """
     copied_flow = deepcopy(flow)
     outputs_to_clean = []

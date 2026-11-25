@@ -667,6 +667,10 @@ def abinit_test_data(test_name: str, test_data_dir: str | None, force: bool) -> 
                 "out_WFQ",
                 "out_POT",
                 "out_dvdb",
+                # out_DDB is copied above (outdata_files) but replaced by a fake
+                # file unless it is the merged DDB of a mrgddb job, the only one
+                # whose content is read (see remove_copied_out_ddb).
+                "out_DDB",
             ],
             tmpdata_fake_files=None,
             allow_missing=True,
@@ -711,7 +715,7 @@ class Test{maker_name}:
         from jobflow import run_locally
         from pymatgen.core.structure import Structure
         from monty.serialization import loadfn
-        from atomate2.abinit.schemas.core import AbinitTaskDoc
+        from atomate2.abinit.schemas.task import AbinitTaskDoc
 
         # load the initial structure, the maker and the ref_paths from the test_dir
         test_dir = abinit_test_dir / {
