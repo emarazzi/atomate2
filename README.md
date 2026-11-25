@@ -5,7 +5,7 @@
 [![pypi version](https://img.shields.io/pypi/v/atomate2?color=blue)](https://pypi.org/project/atomate2)
 ![supported python versions](https://img.shields.io/pypi/pyversions/atomate2)
 [![Zenodo](https://img.shields.io/badge/DOI-10.5281/zenodo.10677080-blue?logo=Zenodo&logoColor=white)](https://doi.org/10.5281/zenodo.15603088)
-[![This project supports Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg?logo=python&logoColor=white)](https://python.org/downloads)
+[![This project supports Python 3.12+](https://img.shields.io/badge/Python-3.12+-blue.svg?logo=python&logoColor=white)](https://python.org/downloads)
 [![PyPI](https://img.shields.io/pypi/dm/atomate2.svg?maxAge=2592000)](https://pypi.python.org/pypi/atomate2)
 
 [Documentation][docs] | [PyPI][pypi] | [GitHub][github]
@@ -87,7 +87,7 @@ atomate2 workflows can be run using the [jobflow-remote] or [FireWorks] software
 
 ## Installation
 
-Atomate2 is a Python 3.10+ library and can be installed using pip. Full installation
+Atomate2 is a Python 3.12+ library and can be installed using pip. Full installation
 and configuration instructions are provided in the [installation tutorial][installation].
 
 ## Tutorials
@@ -125,12 +125,12 @@ We maintain a list of all contributors [here][contributors].
 
 ## License
 
-Atomate2 is released under a modified BSD license; the full text can be found [here][license].
+Atomate2 is released under a modified BSD license; the full text is available [here][license].
 
 ## Acknowledgements
 
 The development of atomate2 has benefited from many people across several research groups.
-A full list of contributors can be found [here][contributors].
+A full list of contributors is available [here][contributors].
 
 ## Citing atomate2
 
@@ -139,7 +139,7 @@ If you use atomate2, please cite the [following article](https://doi.org/10.1039
 ```bib
 @article{ganose2025_atomate2,
 	title = {Atomate2: modular workflows for materials science},
-	author = {Ganose, Alex M. and Sahasrabuddhe, Hrushikesh and Asta, Mark and Beck, Kevin and Biswas, Tathagata and Bonkowski, Alexander and Bustamante, Joana and Chen, Xin and Chiang, Yuan and Chrzan, Daryl C. and Clary, Jacob and Cohen, Orion A. and Ertural, Christina and Gallant, Max C. and George, Janine and Gerits, Sophie and Goodall, Rhys E. A. and Guha, Rishabh D. and Hautier, Geoffroy and Horton, Matthew and Inizan, T. J. and Kaplan, Aaron D. and Kingsbury, Ryan S. and Kuner, Matthew C. and Li, Bryant and Linn, Xavier and McDermott, Matthew J. and Mohanakrishnan, Rohith Srinivaas and Naik, Aakash N. and Neaton, Jeffrey B. and Parmar, Shehan M. and Persson, Kristin A. and Petretto, Guido and Purcell, Thomas A. R. and Ricci, Francesco and Rich, Benjamin and Riebesell, Janosh and Rignanese, Gian-Marco and Rosen, Andrew S. and Scheffler, Matthias and Schmidt, Jonathan and Shen, Jimmy-Xuan and Sobolev, Andrei and Sundararaman, Ravishankar and Tezak, Cooper and Trinquet, Victor and Varley, Joel B. and Vigil-Fowler, Derek and Wang, Duo and Waroquiers, David and Wen, Mingjian and Yang, Han and Zheng, Hui and Zheng, Jiongzhi and Zhu, Zhuoying and Jain, Anubhav},
+	author = {Ganose, Alex M. and Sahasrabuddhe, Hrushikesh and Asta, Mark and Beck, Kevin and Biswas, Tathagata and Bonkowski, Alexander and Bustamante, Joana and Chen, Xin and Chiang, Yuan and Chrzan, Daryl C. and Clary, Jacob and Cohen, Orion A. and Ertural, Christina and Gallant, Max C. and George, Janine and Gerits, Sophie and Goodall, Rhys E. A. and Guha, Rishabh D. and Hautier, Geoffroy and Horton, Matthew and Inizan, T. J. and Kaplan, Aaron D. and Kingsbury, Ryan S. and Kuner, Matthew C. and Li, Bryant and Linn, Xavier and McDermott, Matthew J. and Mohanakrishnan, Rohith Srinivaas and Naik, Aakash A. and Neaton, Jeffrey B. and Parmar, Shehan M. and Persson, Kristin A. and Petretto, Guido and Purcell, Thomas A. R. and Ricci, Francesco and Rich, Benjamin and Riebesell, Janosh and Rignanese, Gian-Marco and Rosen, Andrew S. and Scheffler, Matthias and Schmidt, Jonathan and Shen, Jimmy-Xuan and Sobolev, Andrei and Sundararaman, Ravishankar and Tezak, Cooper and Trinquet, Victor and Varley, Joel B. and Vigil-Fowler, Derek and Wang, Duo and Waroquiers, David and Wen, Mingjian and Yang, Han and Zheng, Hui and Zheng, Jiongzhi and Zhu, Zhuoying and Jain, Anubhav},
 	year = {2025},
 	journal = {Digital Discovery},
 	doi = {10.1039/D5DD00019J},
@@ -147,6 +147,10 @@ If you use atomate2, please cite the [following article](https://doi.org/10.1039
 	urldate = {2025-07-01},
 }
 ```
+## Publications on New atomate2 Contributions
+We published the initial atomate2 paper in Digital Discovery. New additions to atomate2 can be published as a [Commit](https://pubs.rsc.org/dd/article/4/2/301/846290/Commit-Mini-article-for-dynamic-reporting-of) independent of the previous authors.
+
+We are happy to mention and link such Commits in our README, the documentation, or in relevant parts of the code.
 
 [pymatgen]: https://pymatgen.org
 [fireworks]: https://materialsproject.github.io/fireworks/

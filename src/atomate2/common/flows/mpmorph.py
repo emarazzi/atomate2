@@ -13,7 +13,7 @@ For information about the current flows, contact:
 
 from __future__ import annotations
 
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -24,11 +24,10 @@ from atomate2.common.jobs.eos import MPMorphPVPostProcess, _apply_strain_to_stru
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from typing import Any
+    from typing import Any, Self
 
     from jobflow import Job
     from pymatgen.core import Structure
-    from typing_extensions import Self
 
     from atomate2.common.jobs.eos import EOSPostProcessor
 
@@ -160,6 +159,7 @@ class EquilibriumVolumeMaker(Maker):
                 deformed_structures[index].final_structure,
                 prev_dir=None,
             )
+
             relaxed_vol = len(working_outputs["relax"]["volume"])
             md_job.name = f"{self.name} {md_job.name} {relaxed_vol + 1}"
 
@@ -180,7 +180,7 @@ class EquilibriumVolumeMaker(Maker):
 
 
 @dataclass
-class MPMorphMDMaker(Maker, metaclass=ABCMeta):
+class MPMorphMDMaker(Maker, ABC):
     """Base MPMorph flow for amorphous solid equilibration.
 
     This flow uses NVT molecular dynamics to:
@@ -391,7 +391,7 @@ class FastQuenchMaker(Maker):
 
 
 @dataclass
-class SlowQuenchMaker(Maker, metaclass=ABCMeta):
+class SlowQuenchMaker(Maker, ABC):
     """Slow quench from high to low temperature structures.
 
     Quenches a provided structure with a molecular dynamics

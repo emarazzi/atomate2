@@ -7,11 +7,15 @@ from typing import TYPE_CHECKING, Literal
 
 from atomate2 import SETTINGS
 from atomate2.common.flows.phonons import BasePhononMaker
-from atomate2.forcefields import _get_formatted_ff_name
-from atomate2.forcefields.jobs import ForceFieldRelaxMaker, ForceFieldStaticMaker
+from atomate2.forcefields.jobs import (
+    ForceFieldDielectricMaker,
+    ForceFieldRelaxMaker,
+    ForceFieldStaticMaker,
+)
+from atomate2.forcefields.utils import MLFF
 
 if TYPE_CHECKING:
-    from typing_extensions import Self
+    from typing import Self
 
     from atomate2.forcefields import MLFF
 
@@ -27,7 +31,8 @@ class PhononMaker(BasePhononMaker):
     forces are computed for these structures. With the help of phonopy, these
     forces are then converted into a dynamical matrix. To correct for polarization
     effects, a correction of the dynamical matrix based on BORN charges can
-    be performed. The BORN charges can be supplied manually.
+    be performed. The BORN charges can be supplied manually or computed
+    with ``born_maker``.
     Finally, phonon densities of states, phonon band structures
     and thermodynamic properties are computed.
 
@@ -88,7 +93,7 @@ class PhononMaker(BasePhononMaker):
         A maker to perform the computation of the DFT energy on the bulk.
         Set to ``None`` to skip the
         static energy computation
-    born_maker: .ForceFieldStaticMaker or None
+    born_maker: .ForceFieldDielectricMaker or None
         Maker to compute the BORN charges.
     phonon_displacement_maker : .ForceFieldStaticMaker or None
         Maker used to compute the forces for a supercell.
@@ -139,7 +144,7 @@ class PhononMaker(BasePhononMaker):
     kpath_scheme: str = "seekpath"
     store_force_constants: bool = True
     code: str = "forcefields"
-    born_maker: ForceFieldStaticMaker | None = None
+    born_maker: ForceFieldDielectricMaker | None = None
 
     @property
     def prev_calc_dir_argname(self) -> None:
@@ -153,10 +158,21 @@ class PhononMaker(BasePhononMaker):
         """
         return
 
+    @property
+    def mlff(self) -> MLFF:
+        """The MLFF enum corresponding to the force field name."""
+        return self.phonon_displacement_maker.mlff
+
+    @property
+    def ase_calculator_name(self) -> str:
+        """The name of the ASE calculator used in this flow."""
+        return self.phonon_displacement_maker.ase_calculator_name
+
     @classmethod
     def from_force_field_name(
         cls,
-        force_field_name: str | MLFF,
+        force_field_name: str | MLFF | dict,
+        calculator_kwargs: dict | None = None,
         relax_initial_structure: bool = True,
         **kwargs,
     ) -> Self:
@@ -165,32 +181,41 @@ class PhononMaker(BasePhononMaker):
 
         Parameters
         ----------
-        force_field_name : str or .MLFF
+        force_field_name : str or .MLFF or dict
             The name of the force field.
+        calculator_kwargs : dict | None
+            The keyword arguments to pass to the calculator
         relax_initial_structure: bool = True
             Whether to relax the initial structure before performing an EOS fit.
         **kwargs
             Additional kwargs to pass to PhononMaker
 
-
         Returns
         -------
         PhononMaker
         """
-        force_field_name = _get_formatted_ff_name(force_field_name)
-        if relax_initial_structure:
-            kwargs.update(
-                bulk_relax_maker=ForceFieldRelaxMaker(
-                    force_field_name=force_field_name, relax_kwargs={"fmax": 1e-5}
-                )
-            )
-        kwargs.update(
-            static_energy_maker=ForceFieldStaticMaker(
-                force_field_name=force_field_name
-            ),
-            phonon_displacement_maker=ForceFieldStaticMaker(
-                force_field_name=force_field_name
-            ),
-            born_maker=None,
+        calculator_kwargs = calculator_kwargs or {}
+        static_energy_maker = ForceFieldStaticMaker(
+            force_field_name=force_field_name,
+            calculator_kwargs=calculator_kwargs,
         )
-        return cls(name=f"{force_field_name.split('MLFF.')[-1]} Phonon Maker", **kwargs)
+        kwargs.update(
+            bulk_relax_maker=(
+                ForceFieldRelaxMaker(
+                    force_field_name=force_field_name,
+                    calculator_kwargs=calculator_kwargs,
+                    relax_kwargs={"fmax": 1e-5},
+                )
+                if relax_initial_structure
+                else None
+            ),
+            static_energy_maker=static_energy_maker,
+            phonon_displacement_maker=ForceFieldStaticMaker(
+                force_field_name=force_field_name,
+                calculator_kwargs=calculator_kwargs,
+            ),
+        )
+        return cls(
+            name=(f"{static_energy_maker.mlff.name} Phonon Maker"),
+            **kwargs,
+        )

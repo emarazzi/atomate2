@@ -7,7 +7,7 @@ import json
 import time
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -15,7 +15,6 @@ from emmet.core.openmm import (
     Calculation,
     CalculationInput,
     CalculationOutput,
-    OpenMMInterchange,
     OpenMMTaskDocument,
 )
 from jobflow import Maker, Response, job
@@ -25,7 +24,9 @@ from openmm import Integrator, LangevinMiddleIntegrator, Platform, XmlSerializer
 from openmm.app import StateDataReporter
 from openmm.unit import angstrom, kelvin, picoseconds
 from pymatgen.core import Structure
+from pymatgen.util.due import Doi, due
 
+from atomate2.openmm.interchange import OpenMMInterchange
 from atomate2.openmm.utils import (
     PymatgenTrajectoryReporter,
     increment_name,
@@ -113,6 +114,7 @@ def openmm_job(method: Callable) -> job:
     )
 
 
+@due.dcite(Doi("10.1021/acs.jpcb.3c06662"), description="OpenMM 8")
 @dataclass
 class BaseOpenMMMaker(Maker):
     """Base class for OpenMM simulation makers.
@@ -617,7 +619,7 @@ class BaseOpenMMMaker(Maker):
                 elapsed_time=elapsed_time,
                 embed_traj=self._resolve_attr("embed_traj", prev_task),
             ),
-            completed_at=str(datetime.now(tz=timezone.utc)),
+            completed_at=str(datetime.now(tz=UTC)),
             task_name=job_name,
             calc_type=type(self).__name__,
         )
@@ -640,5 +642,5 @@ class BaseOpenMMMaker(Maker):
             force_field=prev_task.force_field,
             task_name=calc.task_name,
             task_type="test",
-            last_updated=datetime.now(tz=timezone.utc),
+            last_updated=datetime.now(tz=UTC),
         )

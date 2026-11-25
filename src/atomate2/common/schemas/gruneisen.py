@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Optional, Union
+from typing import Self, Union
 
 import phonopy
 from emmet.core.structure import StructureMetadata
@@ -21,9 +21,8 @@ from pymatgen.phonon.gruneisen import (
     GruneisenPhononBandStructureSymmLine,
 )
 from pymatgen.phonon.plotter import GruneisenPhononBSPlotter, GruneisenPlotter
-from typing_extensions import Self
 
-from atomate2.common.schemas.phonons import PhononBSDOSDoc
+from atomate2.common.jobs.phonons import _get_kpath
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +30,13 @@ logger = logging.getLogger(__name__)
 class GruneisenInputDirs(BaseModel):
     """Collection with all input directories relevant for the Grueneisen run."""
 
-    ground: Optional[str] = Field(
+    ground: str | None = Field(
         None, description="The directory with ground state structure phonopy yaml"
     )
-    plus: Optional[str] = Field(
+    plus: str | None = Field(
         None, description="The directory with expanded structure phonopy yaml"
     )
-    minus: Optional[str] = Field(
+    minus: str | None = Field(
         None, description="The directory with contracted structure phonopy yaml"
     )
 
@@ -48,13 +47,13 @@ class PhononRunsImaginaryModes(BaseModel):
     Information extracted from phonon run for ground, expanded and contracted structures
     """
 
-    ground: Optional[bool] = Field(
+    ground: bool | None = Field(
         None, description="if true, ground state structure has imaginary modes"
     )
-    plus: Optional[bool] = Field(
+    plus: bool | None = Field(
         None, description="if true, expanded structure has imaginary modes"
     )
-    minus: Optional[bool] = Field(
+    minus: bool | None = Field(
         None, description="if true, contracted structure has imaginary modes"
     )
 
@@ -62,10 +61,10 @@ class PhononRunsImaginaryModes(BaseModel):
 class GruneisenDerivedProperties(BaseModel):
     """Collection of data derived from the Grueneisen workflow."""
 
-    average_gruneisen: Optional[float] = Field(
+    average_gruneisen: float | None = Field(
         None, description="The average Grueneisen parameter"
     )
-    thermal_conductivity_slack: Optional[float] = Field(
+    thermal_conductivity_slack: float | None = Field(
         None,
         description="The thermal conductivity at the acoustic "
         "Debye temperature with the Slack formula.",
@@ -79,18 +78,18 @@ class GruneisenParameterDocument(StructureMetadata):
     gruneisen_parameter_inputs: GruneisenInputDirs = Field(
         None, description="The directories where the phonon jobs were run."
     )
-    phonon_runs_has_imaginary_modes: Optional[PhononRunsImaginaryModes] = Field(
+    phonon_runs_has_imaginary_modes: PhononRunsImaginaryModes | None = Field(
         None,
         description="Collection indicating whether the structures from the "
         "phonon runs have imaginary modes",
     )
-    gruneisen_parameter: Optional[GruneisenParameter] = Field(
+    gruneisen_parameter: GruneisenParameter | None = Field(
         None, description="Grueneisen parameter object"
     )
-    gruneisen_band_structure: Optional[GruneisenPhononBandStructureSymmLine] = Field(
+    gruneisen_band_structure: GruneisenPhononBandStructureSymmLine | None = Field(
         None, description="Grueneisen phonon band structure symmetry line object"
     )
-    derived_properties: Optional[GruneisenDerivedProperties] = Field(
+    derived_properties: GruneisenDerivedProperties | None = Field(
         None, description="Properties derived from the Grueneisen parameter."
     )
 
@@ -143,11 +142,16 @@ class GruneisenParameterDocument(StructureMetadata):
         .GruneisenParameterDocument
         """
         ground = phonopy.load(
-            Path(phonopy_yaml_paths_dict["ground"]) / "ground_phonopy.yaml"
+            Path(phonopy_yaml_paths_dict["ground"]) / "ground_phonopy.yaml",
+            primitive_matrix="P",
         )
-        plus = phonopy.load(Path(phonopy_yaml_paths_dict["plus"]) / "plus_phonopy.yaml")
+        plus = phonopy.load(
+            Path(phonopy_yaml_paths_dict["plus"]) / "plus_phonopy.yaml",
+            primitive_matrix="P",
+        )
         minus = phonopy.load(
-            Path(phonopy_yaml_paths_dict["minus"]) / "minus_phonopy.yaml"
+            Path(phonopy_yaml_paths_dict["minus"]) / "minus_phonopy.yaml",
+            primitive_matrix="P",
         )
         gru = PhonopyGruneisen(phonon=ground, phonon_plus=plus, phonon_minus=minus)
         if type(mesh) is tuple:
@@ -201,7 +205,7 @@ class GruneisenParameterDocument(StructureMetadata):
             img_format=compute_gruneisen_param_kwargs.get("img_format", "pdf"),
         )
         # get phonon band structure
-        kpath_dict, kpath_concrete = PhononBSDOSDoc.get_kpath(
+        kpath_dict, kpath_concrete = _get_kpath(
             structure=structure, kpath_scheme=kpath_scheme, symprec=symprec
         )
         qpoints, _connections = get_band_qpoints_and_path_connections(

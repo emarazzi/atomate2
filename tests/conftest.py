@@ -43,7 +43,7 @@ def clean_dir(debug_mode):
     os.chdir(new_path)
     yield
     if debug_mode:
-        print(f"Tests ran in {new_path}")  # noqa: T201
+        initialize_logger().log(f"Tests ran in {new_path}")
     else:
         os.chdir(old_cwd)
         shutil.rmtree(new_path)
@@ -179,4 +179,11 @@ def pytest_addoption(parser):
         default=False,
         help="Run abinit integration tests. "
         "This basically runs the same tests but without the mocking.",
+    )
+    parser.addoption(
+        "--abinit-record-abiget",
+        action="store_true",
+        default=False,
+        help="Record abipy abiget results to the abiget.json.gz reference files "
+        "(mock mode only; requires a working abinit binary on PATH).",
     )

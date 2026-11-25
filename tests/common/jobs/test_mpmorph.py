@@ -30,6 +30,17 @@ def test_get_ref_file(mock_avg_vol_db):
     assert isinstance(_get_average_volumes_file(), DataFrame)
 
 
+def test_download_ref_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        atomate2.common.jobs.mpmorph,
+        "_DEFAULT_AVG_VOL_FILE",
+        tmp_path / "db_avg_vols.json.gz",
+    )
+    avg_vols = _get_average_volumes_file()
+    assert isinstance(avg_vols, DataFrame)
+    assert len(avg_vols) > 0
+
+
 @pytest.mark.parametrize(
     "db, ignore_oxi_states", [("icsd", [True, False]), ("mp", [True])]
 )
@@ -91,6 +102,16 @@ def test_get_average_volume_from_icsd(
         assert get_avg_vol_func(comp, *args, **kwargs) == pytest.approx(
             ref_vols[ignore_oxi]
         )
+
+    # test value error on missing data for elements
+    with pytest.raises(ValueError, match="No unary"):
+        get_avg_vol_func(Composition({"Og2+": 1}), *args, **kwargs)
+
+    # test that there's a fallback for when the only available data is unary
+    assert len(avg_vols[avg_vols["chem_env"] == "Ag__Os"]) == 0
+    assert get_avg_vol_func(Composition("Ag Os"), *args, **kwargs) == pytest.approx(
+        15.299831934654062 if db == "icsd" else 21.993489561622383
+    )
 
 
 @pytest.mark.skipif(
