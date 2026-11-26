@@ -1086,8 +1086,9 @@ def get_ksampling(
     ValueError
         If no k-point settings are defined or if k-point generation fails.
     """
-    # Use user setting if provided, otherwise use updates
-    if user_kpoints_settings != {}:
+    # Use user setting if provided (non-empty dict or KSampling), otherwise
+    # use updates. None and {} both mean "no user settings".
+    if user_kpoints_settings:
         kconfig = copy.deepcopy(user_kpoints_settings)
     elif kpoints_updates:
         kconfig = kpoints_updates

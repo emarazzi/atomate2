@@ -7,7 +7,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 
 import jobflow
 from jobflow import Maker, Response, job
@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["BaseAbinitMaker", "JobSetupVars", "abinit_job", "setup_job"]
+
+HANDLE_UNSUCCESSFUL_OPTIONS = ("error", "stop_flow", "stop_children", "continue")
 
 
 class JobSetupVars(NamedTuple):
@@ -198,9 +200,23 @@ class BaseAbinitMaker(Maker):
         Additional keyword arguments passed to :obj:`.run_abinit`.
     task_document_kwargs : dict[str, Any]
         Additional keyword arguments passed to :obj:`.TaskDoc.from_directory`.
-    stop_jobflow_on_failure : bool
-        If True, stop the entire jobflow when this job fails after maximum
-        restarts. Default is False.
+    handle_unsuccessful : str or None
+        What to do when the job is still unconverged after the maximum number
+        of restarts (``SETTINGS.ABINIT_MAX_RESTARTS``). One of:
+
+        - ``"error"``: raise an :obj:`.UnconvergedError`, the job is FAILED.
+        - ``"stop_flow"``: mark the job as COMPLETED, but stop all
+          remaining jobs of the flow.
+        - ``"stop_children"``: mark the job as COMPLETED, but stop its
+          children only.
+        - ``"continue"``: mark the job as COMPLETED and continue with the
+          workflow as normal.
+
+        If None (default), the value of ``SETTINGS.ABINIT_HANDLE_UNSUCCESSFUL``
+        (default ``"error"``) is used. It is resolved when the job runs, so it
+        can be set in the ``atomate2.yaml`` settings file (or the
+        ``ATOMATE2_ABINIT_HANDLE_UNSUCCESSFUL`` environment variable) of the
+        machine executing the job, or overridden per job on the maker.
     """
 
     input_set_generator: AbinitInputGenerator
@@ -208,19 +224,34 @@ class BaseAbinitMaker(Maker):
     wall_time: int | None = None
     run_abinit_kwargs: dict[str, Any] = field(default_factory=dict)
     task_document_kwargs: dict[str, Any] = field(default_factory=dict)
-    handle_unsuccessful: str = SETTINGS.ABINIT_HANDLE_UNSUCCESSFUL
+    handle_unsuccessful: (
+        Literal["error", "stop_flow", "stop_children", "continue"] | None
+    ) = None
 
     # class variables
     CRITICAL_EVENTS: ClassVar[Sequence[AbinitCriticalWarning]] = ()
 
     def __post_init__(self) -> None:
         """
-        Initialize critical events list from class variable.
+        Initialize critical events list and validate handle_unsuccessful.
 
         This converts the class-level CRITICAL_EVENTS tuple to an instance
         list that can be modified per-instance if needed.
+
+        Raises
+        ------
+        ValueError
+            If handle_unsuccessful is neither None nor one of the allowed options.
         """
         self.critical_events = list(self.CRITICAL_EVENTS)
+        if (
+            self.handle_unsuccessful is not None
+            and self.handle_unsuccessful not in HANDLE_UNSUCCESSFUL_OPTIONS
+        ):
+            raise ValueError(
+                f"Invalid handle_unsuccessful={self.handle_unsuccessful!r}, "
+                f"should be None or one of {HANDLE_UNSUCCESSFUL_OPTIONS}."
+            )
 
     @property
     def calc_type(self) -> str:
@@ -285,11 +316,17 @@ class BaseAbinitMaker(Maker):
             **self.run_abinit_kwargs,
         )
 
-        # Parse ABINIT outputs
+        # Parse ABINIT outputs. User additional_fields (e.g. tags, possibly set
+        # via update_taskdoc_kwargs) are merged with the job history dirs.
+        task_document_kwargs = dict(self.task_document_kwargs)
+        additional_fields = {
+            **(task_document_kwargs.pop("additional_fields", None) or {}),
+            "history_dirs": config.history.prev_dirs,
+        }
         task_doc = AbinitTaskDoc.from_directory(
             Path.cwd(),
-            additional_fields={"history_dirs": config.history.prev_dirs},
-            **self.task_document_kwargs,
+            additional_fields=additional_fields,
+            **task_document_kwargs,
         )
         task_doc.task_label = self.name
         if len(task_doc.event_report.filter_types(self.critical_events)) > 0:
@@ -336,8 +373,13 @@ class BaseAbinitMaker(Maker):
             A jobflow Response. Contains the task document and either:
             - Nothing else if calculation succeeded
             - A replacement job if restarting
-            - stop_children/stop_jobflow flags if max restarts exceeded
-                depending on the value of handle_unsuccessful
+            - If max restarts are exceeded, the behaviour depends on
+              ``handle_unsuccessful`` (resolved from
+              ``SETTINGS.ABINIT_HANDLE_UNSUCCESSFUL`` if None): an
+              UnconvergedError is raised ("error"), or the task document is
+              returned with stop_children and stop_jobflow set to True
+              ("stop_flow"), only stop_children set to True ("stop_children")
+              or neither ("continue").
         """
         if task_document.state == TaskState.SUCCESS:
             return Response(
@@ -351,31 +393,34 @@ class BaseAbinitMaker(Maker):
                 abinit_input=task_document.input.abinit_input,
                 history=history,
             )
-            # Max restarts exceeded - action depends on self.handle_unsuccessful
-            if self.handle_unsuccessful == "error":
+            # Max restarts exceeded - action depends on handle_unsuccessful,
+            # resolved at runtime so that the settings of the machine running
+            # the job are used rather than those at import/submission time.
+            handle = self.handle_unsuccessful or SETTINGS.ABINIT_HANDLE_UNSUCCESSFUL
+            if handle == "error":
                 raise unconverged_error
-            if self.handle_unsuccessful == "stop_flow":
+            if handle == "stop_flow":
                 return Response(
                     output=task_document,
                     stop_children=True,
                     stop_jobflow=True,
                     stored_data={"error": unconverged_error},
                 )
-            if self.handle_unsuccessful == "stop_children":
+            if handle == "stop_children":
                 return Response(
                     output=task_document,
                     stop_children=True,
                     stop_jobflow=False,
                     stored_data={"error": unconverged_error},
                 )
-            if self.handle_unsuccessful == "continue":
+            if handle == "continue":
                 return Response(
                     output=task_document,
                     stop_children=False,
                     stop_jobflow=False,
                     stored_data={"error": unconverged_error},
                 )
-            raise RuntimeError(f"Unknown option for {self.handle_unsuccessful=}")
+            raise RuntimeError(f"Unknown option for handle_unsuccessful: {handle!r}")
 
         logger.info("Getting restart job.")
 

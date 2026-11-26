@@ -723,11 +723,11 @@ def get_mrgddb_report(
     dict
         Dictionary with boolean "run_completed" key.
     """
-    if not Path(logfile).exists:
+    logfile = Path(logfile)
+    if not logfile.exists():
         return {"run_completed": False}
-    with open(str(logfile)) as f:
-        last_line = f.readlines()[-1]
-    return {"run_completed": "completed successfully" in last_line}
+    lines = logfile.read_text().splitlines()
+    return {"run_completed": bool(lines) and "completed successfully" in lines[-1]}
 
 
 def get_mrgdv_report(
@@ -749,8 +749,8 @@ def get_mrgdv_report(
     dict
         Dictionary with boolean "run_completed" key.
     """
-    if not Path(logfile).exists:
+    logfile = Path(logfile)
+    if not logfile.exists():
         return {"run_completed": False}
-    with open(str(logfile)) as f:
-        last_line = f.readlines()[-1]
-    return {"run_completed": "Done" in last_line}
+    lines = logfile.read_text().splitlines()
+    return {"run_completed": bool(lines) and "Done" in lines[-1]}

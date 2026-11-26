@@ -224,7 +224,9 @@ class Atomate2Settings(BaseSettings):
         'abinit.files.del_gzip_files'. \
         An empty list should be provided to avoid removing any files.",
     )
-    ABINIT_HANDLE_UNSUCCESSFUL: str = Field(
+    ABINIT_HANDLE_UNSUCCESSFUL: Literal[
+        "error", "stop_flow", "stop_children", "continue"
+    ] = Field(
         "error",
         description="Four-way toggle on what to do if the job looks OK but is actually"
         " unconverged (either electronic or ionic). "

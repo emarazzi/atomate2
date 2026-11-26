@@ -207,7 +207,8 @@ class PhononMaker(DfptFlowMaker):
         with_dde, run_mrgdv, and run_anaddb flags. When with_dde is False,
         both DDK and DDE makers are set to None. When run_mrgdv is False,
         the mrgdv_maker is set to None. When run_anaddb is False, the
-        anaddb_maker is set to None.
+        anaddb_maker is set to None. The resulting configuration is then
+        validated by :meth:`DfptFlowMaker.__post_init__`.
         """
         if not self.with_dde:
             # DDK is a prerequisite for DDE, so both are disabled together
@@ -219,3 +220,6 @@ class PhononMaker(DfptFlowMaker):
 
         if not self.run_anaddb:
             self.anaddb_maker = None
+
+        # Validate the resulting combination of makers
+        super().__post_init__()

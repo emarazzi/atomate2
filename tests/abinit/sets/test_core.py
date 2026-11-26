@@ -117,3 +117,63 @@ def test_static_generator_get_input_set(si_structure):
 #         outdenpath = os.path.join(
 #             tmpdir, "first_run", OUTDIR_NAME, f"{OUTDATAFILE_PREFIX}_DEN"
 #         )
+
+
+def _make_prev_dir(src, dest, out_files):
+    """Copy abinit_input.json (and run.abo) of a test calc and touch outdata files."""
+    import gzip
+    import shutil
+
+    (dest / "outdata").mkdir(parents=True)
+    for fname, subdir in (("abinit_input.json", "inputs"), ("run.abo", "outputs")):
+        gz_file = src / subdir / f"{fname}.gz"
+        if gz_file.exists():
+            with gzip.open(gz_file, "rb") as fin, open(dest / fname, "wb") as fout:
+                shutil.copyfileobj(fin, fout)
+    for out_file in out_files:
+        (dest / "outdata" / out_file).touch()
+    return dest
+
+
+def test_wfq_generator_restart(abinit_test_dir, tmp_path):
+    from atomate2.abinit.sets.core import NscfWfqSetGenerator
+
+    ref_dir = abinit_test_dir / "flows/dfpt_core/PhononMaker/Si_phonon_bandstructure"
+    scf_dir = _make_prev_dir(
+        ref_dir / "Scf_calculation/1", tmp_path / "scf", ["out_WFK", "out_DEN"]
+    )
+    wfq_dir = _make_prev_dir(
+        ref_dir / "WFQ_nscf_Calculation_-_1/1", tmp_path / "wfq", ["out_WFQ"]
+    )
+    gen = NscfWfqSetGenerator(factory_kwargs={"qpt": [0.25, 0.0, 0.0]})
+
+    def linked(input_set):
+        return {dest: src for src, dest in input_set.input_files}
+
+    # First run: SCF WFK as starting wavefunctions, SCF DEN
+    first = gen.get_input_set(prev_outputs=[str(scf_dir)])
+    assert linked(first) == {
+        "in_WFK": str(scf_dir / "outdata/out_WFK"),
+        "in_DEN": str(scf_dir / "outdata/out_DEN"),
+    }
+
+    # Restart: the previous out_WFQ replaces the SCF WFK as in_WFK
+    restart = gen.get_input_set(
+        prev_outputs=[str(scf_dir)], restart_from=[str(wfq_dir)]
+    )
+    assert linked(restart) == {
+        "in_WFK": str(wfq_dir / "outdata/out_WFQ"),
+        "in_DEN": str(scf_dir / "outdata/out_DEN"),
+    }
+    assert restart.abinit_input["irdwfk"] == 1
+    assert "irdwfq" not in restart.abinit_input
+    assert restart.abinit_input["nqpt"] == 1
+
+    # Restart without prev_outputs (no SCF density) fails explicitly
+    with pytest.raises(ValueError, match="requires prev_outputs"):
+        gen.get_input_set(restart_from=[str(wfq_dir)])
+
+    # Restart without a WFQ file fails explicitly
+    (wfq_dir / "outdata/out_WFQ").unlink()
+    with pytest.raises(Exception, match="Cannot find WFQ file"):
+        gen.get_input_set(prev_outputs=[str(scf_dir)], restart_from=[str(wfq_dir)])

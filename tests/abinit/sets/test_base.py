@@ -382,3 +382,20 @@ def test_generator_set_kpt_vars(abinit_test_dir):
     aig._set_kpt_vars(abinit_input, {"line_density": 10})  # noqa: SLF001
     assert abinit_input["nkpt"] == 92
     assert "ngkpt" not in abinit_input
+
+
+def test_get_ksampling_no_user_settings(si_structure):
+    from pymatgen.io.abinit.abiobjects import KSampling
+
+    from atomate2.abinit.sets.base import get_ksampling
+
+    # None (the default) and {} both mean "no user settings"
+    for user_settings in (None, {}):
+        with pytest.raises(ValueError, match="No k-point settings defined"):
+            get_ksampling(si_structure, user_kpoints_settings=user_settings)
+        ksampling = get_ksampling(
+            si_structure,
+            user_kpoints_settings=user_settings,
+            kpoints_updates={"grid_density": 100},
+        )
+        assert isinstance(ksampling, KSampling)

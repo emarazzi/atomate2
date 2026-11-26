@@ -163,7 +163,8 @@ class PhononSetGenerator(StaticSetGenerator):
     pseudos : str or list[str] or PseudoTable or None
         Pseudopotentials specification. Default is None.
     restart_from_deps : tuple
-        Dependencies for restarting calculations. Default is (f"{SCF}:WFK",).
+        Dependencies for restarting calculations. Default is
+        (f"{PH_Q_PERT}:1WF|1DEN",).
     prev_outputs_deps : tuple
         Dependencies from previous calculations (SCF and NSCF with q-shifted grid).
         Default is (f"{SCF}:WFK", f"{NSCF}:WFQ").
@@ -177,7 +178,7 @@ class PhononSetGenerator(StaticSetGenerator):
     # Pseudos set to None to automatically recover them from the previous
     # SCF calculation
     pseudos: str | list[str] | PseudoTable | None = None
-    restart_from_deps: tuple = (f"{SCF}:WFK",)
+    restart_from_deps: tuple = (f"{PH_Q_PERT}:1WF|1DEN",)
     prev_outputs_deps: tuple = (f"{SCF}:WFK", f"{NSCF}:WFQ")
     factory_prev_inputs_kwargs: dict | None = field(
         default_factory=lambda: {"gs_input": (SCF,)}

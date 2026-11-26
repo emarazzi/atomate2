@@ -27,8 +27,7 @@ if TYPE_CHECKING:
 
     from atomate2.abinit.sets.anaddb import AnaddbInputGenerator
     from atomate2.abinit.sets.base import AbinitInputGenerator
-    from atomate2.abinit.sets.mrgddb import MrgddbInputGenerator
-    from atomate2.abinit.sets.mrgdvdb import MrgdvInputGenerator
+    from atomate2.abinit.sets.merge import MergeInputGenerator
 
 __all__ = [
     "del_gzip_files",
@@ -37,6 +36,7 @@ __all__ = [
     "out_to_in",
     "write_abinit_input_set",
     "write_anaddb_input_set",
+    "write_merge_input_set",
     "write_mrgddb_input_set",
     "write_mrgdv_input_set",
 ]
@@ -196,76 +196,46 @@ def write_abinit_input_set(
     ais.write_input(directory=directory, make_dir=True, overwrite=False)
 
 
-def write_mrgddb_input_set(
-    input_set_generator: MrgddbInputGenerator,
+def write_merge_input_set(
+    input_set_generator: MergeInputGenerator,
     prev_outputs: str | Path | list[str] | None = None,
     directory: str | Path = ".",
 ) -> None:
     """
-    Write the MRGDDB input using a given generator.
+    Write the input of an ABINIT merge utility (mrgddb, mrgdv) using a generator.
 
     Parameters
     ----------
-    input_set_generator : MrgddbInputGenerator
-        The input generator used to write the MRGDDB inputs.
+    input_set_generator : MergeInputGenerator
+        The input generator used to write the inputs.
     prev_outputs : str or Path or list[str] or None
-        The list of previous directories needed for the calculation.
+        The list of previous directories whose outputs are merged.
         Default is None.
     directory : str or Path
-        Directory in which to write the MRGDDB inputs. Default is ".".
+        Directory in which to write the inputs. Default is ".".
 
     Raises
     ------
     RuntimeError
-        If the generated MrgddbInputSet is not valid or if some previous
-        outputs do not exist.
+        If the generated input set is not valid, e.g. if some of the files to
+        merge do not exist.
     """
-    mrgis = input_set_generator.get_input_set(
+    merge_is = input_set_generator.get_input_set(
         prev_outputs=prev_outputs,
         workdir=directory,
     )
-    if not mrgis.validate():
+    if not merge_is.validate():
         raise RuntimeError(
-            "MrgddbInputSet is not valid. Some previous outputs do not exist."
+            f"{type(merge_is).__name__} is not valid. "
+            "Some previous outputs do not exist."
         )
 
-    mrgis.write_input(directory=directory, make_dir=True, overwrite=False)
+    merge_is.write_input(directory=directory, make_dir=True, overwrite=False)
 
 
-def write_mrgdv_input_set(
-    input_set_generator: MrgdvInputGenerator,
-    prev_outputs: str | Path | list[str] | None = None,
-    directory: str | Path = ".",
-) -> None:
-    """
-    Write the MRGDV input using a given generator.
-
-    Parameters
-    ----------
-    input_set_generator : MrgdvInputGenerator
-        The input generator used to write the MRGDV inputs.
-    prev_outputs : str or Path or list[str] or None
-        The list of previous directories needed for the calculation.
-        Default is None.
-    directory : str or Path
-        Directory in which to write the MRGDV inputs. Default is ".".
-
-    Raises
-    ------
-    RuntimeError
-        If the generated MrgdvInputSet is not valid or if some previous
-        outputs do not exist.
-    """
-    mrgis = input_set_generator.get_input_set(
-        prev_outputs=prev_outputs,
-        workdir=directory,
-    )
-    if not mrgis.validate():
-        raise RuntimeError(
-            "MrgdvInputSet is not valid. Some previous outputs do not exist."
-        )
-
-    mrgis.write_input(directory=directory, make_dir=True, overwrite=False)
+# Names used by the MRGDDB and MRGDV jobs (and patched by the test mocks)
+write_mrgddb_input_set = write_merge_input_set
+write_mrgdv_input_set = write_merge_input_set
 
 
 def write_anaddb_input_set(
@@ -336,6 +306,16 @@ def del_gzip_files(
         given relative to directory. Glob file paths are supported,
         e.g., "\*.dat". If None, all files in the directory will be deleted.
         Default is None.
+
+    Notes
+    -----
+    Compressed directories can no longer be used as ``prev_outputs`` or
+    ``restart_from`` of a new job: files such as ``abinit_input.json``, the
+    GSR or the DDB are then only available as ``.gz``, and the files in
+    ``SETTINGS.ABINIT_FILES_TO_DEL`` (e.g. DEN and WFK) are deleted. To keep a
+    directory reusable, exclude the needed files, e.g.
+    ``exclude_files_from_zip=["abinit_input.json", "*GSR*", "*DDB*", "*DEN*",
+    "*WFK*"]`` together with ``exclude_files_from_del=["*DEN*", "*WFK*"]``.
     """
     dirs_to_clean = []
     for o in outputs:

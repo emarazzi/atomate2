@@ -135,10 +135,10 @@ class OutputDoc(BaseModel):
     def from_abinit_files(
         cls,
         dir_name: Path | str,
-        abinit_anaddb_file: Path | str = "out_anaddb.nc",
+        abinit_anaddb_file: Path | str = "outdata/out_anaddb.nc",
         abinit_analog_file: Path | str = "run.log",  # noqa: ARG003
-        abinit_phbst_file: Path | str = "out_PHBST.nc",
-        abinit_phdos_file: Path | str = "out_PHDOS.nc",
+        abinit_phbst_file: Path | str = "outdata/out_PHBST.nc",
+        abinit_phdos_file: Path | str = "outdata/out_PHDOS.nc",
     ) -> OutputDoc:
         """
         Create an ANADDB calculation document from a directory and file paths.
@@ -149,16 +149,16 @@ class OutputDoc(BaseModel):
             The directory containing the calculation outputs.
         abinit_anaddb_file : Path or str
             Path to the ANADDB netCDF output file, relative to dir_name.
-            Default is "out_anaddb.nc".
+            Default is "outdata/out_anaddb.nc".
         abinit_analog_file : Path or str
             Path to the main log file of the ANADDB job, relative to dir_name.
             Default is "run.log".
         abinit_phbst_file : Path or str
             Path to the phonon band structure file, relative to dir_name.
-            Default is "out_PHBST.nc".
+            Default is "outdata/out_PHBST.nc".
         abinit_phdos_file : Path or str
             Path to the phonon DOS file, relative to dir_name.
-            Default is "out_PHDOS.nc".
+            Default is "outdata/out_PHDOS.nc".
 
         Returns
         -------
@@ -219,8 +219,9 @@ class OutputDoc(BaseModel):
             heat_capacities = None
             internal_energies = None
             entropies = None
-        born = getattr(abinit_anaddb, "bec", None)
-        born = born.values if born else None
+        # None if anaddb did not compute the Born effective charges
+        born = abinit_anaddb.becs
+        born = born.values.tolist() if born is not None else None
 
         formula_units = get_num_formula_units(structure.composition)
 
@@ -321,9 +322,6 @@ class AnaddbTaskDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg]
         cls,
         dir_name: Path | str,
         additional_fields: dict[str, Any] | None = None,
-        abinit_phbst_file: Path | str = "out_PHBST.nc",
-        abinit_phdos_file: Path | str = "out_PHDOS.nc",
-        abinit_analog_file: Path | str = "run.log",
         files_to_store: list[str] | None = None,
         **output_doc_kwargs,
     ) -> AnaddbTaskDoc:
@@ -336,18 +334,9 @@ class AnaddbTaskDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg]
         additional_fields : dict[str, Any] or None
             Dictionary of additional fields to add to the output document.
             Default is None.
-        abinit_phbst_file : Path or str
-            Path to the phonon band structure file, relative to dir_name.
-            Default is "out_PHBST.nc".
-        abinit_phdos_file : Path or str
-            Path to the phonon DOS file, relative to dir_name.
-            Default is "out_PHDOS.nc".
-        abinit_analog_file : Path or str
-            Path to the main log file of the ANADDB job, relative to dir_name.
-            Default is "run.log".
         files_to_store : list[str] or None
             List of file types to store (e.g., ["PHBST", "PHDOS"]).
-            Default is None.
+            Default is None (no file is stored).
         **output_doc_kwargs
             Additional keyword arguments passed to OutputDoc.from_abinit_files().
 
@@ -372,8 +361,13 @@ class AnaddbTaskDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg]
             )
 
         std_task_files = next(iter(task_files.values()))
+        if "abinit_analog_file" not in std_task_files:
+            raise FileNotFoundError(f"No anaddb log file found in {dir_name}")
+        # Paths found by _find_abinit_files are relative to dir_name
+        abinit_analog_file = dir_name / std_task_files["abinit_analog_file"]
+        files_to_store = files_to_store or []
 
-        report = get_event_report(ofile=File(abinit_analog_file))
+        report = get_event_report(ofile=File(str(abinit_analog_file)))
         if not report.run_completed:
             raise RuntimeError("Anaddb did not complete successfully")
 
@@ -381,16 +375,16 @@ class AnaddbTaskDoc(StructureMetadata, extra="allow"):  # type: ignore[call-arg]
             dir_name, **std_task_files, **output_doc_kwargs
         )
 
-        phbst_filepath = dir_name / abinit_phbst_file
         abinit_objects: dict[AbinitObject, Any] = {}
-        if phbst_filepath.exists() and "PHBST" in files_to_store:
+        phbst_file = std_task_files.get("abinit_phbst_file")
+        if phbst_file is not None and "PHBST" in files_to_store:
             abinit_objects[AbinitObject.PHBSTFILE] = AbinitStoredFile.from_file(  # type: ignore[index]
-                filepath=phbst_filepath, data_type=bytes
+                filepath=dir_name / phbst_file, data_type=bytes
             )
-        phdos_filepath = dir_name / abinit_phdos_file
-        if phdos_filepath.exists() and "PHDOS" in files_to_store:
+        phdos_file = std_task_files.get("abinit_phdos_file")
+        if phdos_file is not None and "PHDOS" in files_to_store:
             abinit_objects[AbinitObject.PHDOSFILE] = AbinitStoredFile.from_file(  # type: ignore[index]
-                filepath=phdos_filepath, data_type=bytes
+                filepath=dir_name / phdos_file, data_type=bytes
             )
         completed_at = str(
             datetime.fromtimestamp(os.stat(abinit_analog_file).st_mtime, tz=UTC)

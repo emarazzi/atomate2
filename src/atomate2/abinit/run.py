@@ -10,6 +10,7 @@ from abipy.flowtk.qutils import time2slurm
 
 from atomate2 import SETTINGS
 from atomate2.abinit.utils.common import (
+    ANADDB_INPUT_FILE_NAME,
     INPUT_FILE_NAME,
     LOG_FILE_NAME,
     MRGDDB_INPUT_FILE_NAME,
@@ -95,88 +96,69 @@ def run_abinit(
         process.wait()
 
 
+def _run_merge(command: list[str], input_file_name: str) -> None:
+    """
+    Run an ABINIT merge utility (mrgddb, mrgdv, ...) reading its input from stdin.
+
+    The merge utilities are not parallelized (they abort if run on more than
+    one MPI process), so they are executed directly, without
+    SETTINGS.ABINIT_MPIRUN_CMD. Completion is checked afterwards by parsing
+    the log, as for ABINIT.
+
+    Parameters
+    ----------
+    command : list[str]
+        The command to run (executable and arguments).
+    input_file_name : str
+        Name of the file passed as stdin.
+    """
+    with (
+        open(input_file_name) as stdin,
+        open(LOG_FILE_NAME, "w") as stdout,
+        open(STDERR_FILE_NAME, "w") as stderr,
+    ):
+        process = subprocess.Popen(command, stdin=stdin, stdout=stdout, stderr=stderr)
+        process.wait()
+
+
 def run_mrgddb(
     mrgddb_cmd: str | None = None,
-    mpirun_cmd: str | None = None,
-    start_time: float | None = None,
+    start_time: float | None = None,  # noqa: ARG001
 ) -> None:
     """
-    Run MRGDDB utility to merge DDB files.
-
-    Executes the MRGDDB utility with optional MPI support. If MPI is used
-    without explicit process count specification, defaults to single process.
+    Run MRGDDB to merge DDB files.
 
     Parameters
     ----------
     mrgddb_cmd : str or None
         MRGDDB executable command. If None, uses SETTINGS.ABINIT_MRGDDB_CMD.
         Default is None.
-    mpirun_cmd : str or None
-        MPI run command. If None, uses SETTINGS.ABINIT_MPIRUN_CMD.
-        Default is None.
     start_time : float or None
-        Start time timestamp. If None, uses current time. Default is None.
+        Start time timestamp. Not used, kept for a uniform runner interface.
+        Default is None.
     """
     mrgddb_cmd = mrgddb_cmd or SETTINGS.ABINIT_MRGDDB_CMD
-    mpirun_cmd = mpirun_cmd or SETTINGS.ABINIT_MPIRUN_CMD
-    command = []
-    if mpirun_cmd:
-        if not any(opt in mpirun_cmd.split() for opt in ("-c", "-n", "--n", "-np")):
-            mpirun_cmd += " -n 1"
-        command.extend(mpirun_cmd.split())
-    command.extend([mrgddb_cmd, "--nostrict"])
-    _start_time = start_time or time.time()
-
-    with (
-        open(MRGDDB_INPUT_FILE_NAME) as stdin,
-        open(LOG_FILE_NAME, "w") as stdout,
-        open(STDERR_FILE_NAME, "w") as stderr,
-    ):
-        process = subprocess.Popen(command, stdin=stdin, stdout=stdout, stderr=stderr)
-
-        process.wait()
+    _run_merge([mrgddb_cmd, "--nostrict"], MRGDDB_INPUT_FILE_NAME)
 
 
 def run_mrgdv(
     mrgdv_cmd: str | None = None,
-    mpirun_cmd: str | None = None,
-    start_time: float | None = None,
+    start_time: float | None = None,  # noqa: ARG001
 ) -> None:
     """
-    Run MRGDV utility to merge potential derivative files.
-
-    Executes the MRGDV utility with optional MPI support. If MPI is used
-    without explicit process count specification, defaults to single process.
+    Run MRGDV to merge first-order potential (POT) files into a DVDB file.
 
     Parameters
     ----------
     mrgdv_cmd : str or None
         MRGDV executable command. If None, uses SETTINGS.ABINIT_MRGDV_CMD.
         Default is None.
-    mpirun_cmd : str or None
-        MPI run command. If None, uses SETTINGS.ABINIT_MPIRUN_CMD.
-        Default is None.
     start_time : float or None
-        Start time timestamp. If None, uses current time. Default is None.
+        Start time timestamp. Not used, kept for a uniform runner interface.
+        Default is None.
     """
     mrgdv_cmd = mrgdv_cmd or SETTINGS.ABINIT_MRGDV_CMD
-    mpirun_cmd = mpirun_cmd or SETTINGS.ABINIT_MPIRUN_CMD
-    command = []
-    if mpirun_cmd:
-        if not any(opt in mpirun_cmd.split() for opt in ("-c", "-n", "--n", "-np")):
-            mpirun_cmd += " -n 1"
-        command.extend(mpirun_cmd.split())
-    command.append(mrgdv_cmd)
-    _start_time = start_time or time.time()
-
-    with (
-        open(MRGDV_INPUT_FILE_NAME) as stdin,
-        open(LOG_FILE_NAME, "w") as stdout,
-        open(STDERR_FILE_NAME, "w") as stderr,
-    ):
-        process = subprocess.Popen(command, stdin=stdin, stdout=stdout, stderr=stderr)
-
-        process.wait()
+    _run_merge([mrgdv_cmd], MRGDV_INPUT_FILE_NAME)
 
 
 def run_anaddb(
@@ -206,7 +188,7 @@ def run_anaddb(
     command = []
     if mpirun_cmd:
         command.extend(mpirun_cmd.split())
-    command.extend([anaddb_cmd, "anaddb.in"])
+    command.extend([anaddb_cmd, ANADDB_INPUT_FILE_NAME])
     _start_time = start_time or time.time()
 
     with (

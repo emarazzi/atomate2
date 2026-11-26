@@ -54,7 +54,9 @@ def test_run_silicon_carbide_shg(
 
     # Create and run the flow locally, ensuring successful completion
     flow_or_job = maker.make(structure)
-    responses = run_locally(flow_or_job, create_folders=True, ensure_success=True)
+    responses = run_locally(
+        flow_or_job, create_folders=True, ensure_success=True, raise_immediately=True
+    )
 
     # Validate the number of jobs executed
     # Expected: 1 SCF + 3 DDK + 1 generate_perts + 3 DDE + 4 DTE + 1 mrgddb + 1 anaddb
@@ -130,7 +132,9 @@ def test_run_si_phonon_band_structure(
 
     # Create and run the flow locally, ensuring successful completion
     flow_or_job = maker.make(structure)
-    responses = run_locally(flow_or_job, create_folders=True, ensure_success=True)
+    responses = run_locally(
+        flow_or_job, create_folders=True, ensure_success=True, raise_immediately=True
+    )
 
     # Validate the number of jobs executed
     # Expected: 1 SCF + 3 DDK + 1 generate_perts + 1 DDE + 2 WFQ
